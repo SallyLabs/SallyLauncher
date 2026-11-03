@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'"
+    />
+    <title>SallyLauncher Setup</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- ------------------------------------------------------------- rail -->
+      <aside class="rail">
+        <div class="rail-glow"></div>
+        <div class="rail-brand">
+          <img class="rail-logo" src="assets/logo.png" alt="" />
+          <div class="rail-brand-text">
+            <b>SallyLauncher</b>
+            <span id="railEdition">Setup</span>
+          </div>
+        </div>
+
+        <ol class="rail-steps" id="railSteps">
+          <li class="rail-step" data-for="welcome">
+            <i><span>1</span></i>
+            <em id="railStep1">Ziel &amp; Optionen</em>
+          </li>
+          <li class="rail-step" data-for="progress">
+            <i><span>2</span></i>
+            <em id="railStep2">Installation</em>
+          </li>
+          <li class="rail-step" data-for="done">
+            <i><span>3</span></i>
+            <em id="railStep3">Fertig</em>
+          </li>
+        </ol>
+
+        <div class="rail-fill">
+          <img class="rail-mark" src="assets/logo.png" alt="" />
+        </div>
+
+        <div class="rail-foot">
+          <span class="rail-version" id="railVersion">v1.0.0</span>
+          <span class="rail-labs">SallyLabs</span>
+        </div>
+      </aside>
+
+      <!-- ------------------------------------------------------------- pane -->
+      <main class="pane">
+        <header class="pane-head">
+          <span class="pane-eyebrow" id="paneEyebrow">Setup</span>
+          <div class="win-controls">
+            <button class="win-btn" id="minimize" type="button" title="Minimieren">
+              <svg viewBox="0 0 24 24" width="15" height="15"><path d="M6 12h12" /></svg>
+            </button>
+            <button class="win-btn close" id="close" type="button" title="Schließen">
+              <svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 7l10 10M17 7L7 17" /></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="pane-body">
+          <!-- ------------------------------------------------------ welcome -->
+          <section class="step" data-step="welcome">
+            <div class="step-copy">
+              <h1 id="welcomeTitle">SallyLauncher installieren</h1>
+              <p id="welcomeSub">
+                Der Launcher wird in den gewählten Ordner kopiert. Deine Minecraft-Welten, Profile und
+                Einstellungen bleiben unberührt.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="installDir">Installationsordner</label>
+              <div class="path-row">
+                <span class="path-icon">
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path d="M3 7.5A1.5 1.5 0 014.5 6h4l1.6 2h7.4A1.5 1.5 0 0119 9.5v7A1.5 1.5 0 0117.5 18h-13A1.5 1.5 0 013 16.5z" />
+                  </svg>
+                </span>
+                <input id="installDir" type="text" spellcheck="false" />
+                <button class="btn ghost compact" id="browse" type="button">Ändern</button>
+              </div>
+              <span class="hint" id="dirHint">Standard: dein Benutzerprofil – keine Admin-Rechte nötig.</span>
+            </div>
+
+            <div class="options" id="installOptions">
+              <label class="option">
+                <span class="option-icon">
+                  <svg viewBox="0 0 24 24" width="17" height="17">
+                    <rect x="3.5" y="4.5" width="17" height="11" rx="2" />
+                    <path d="M9 19h6M12 15.5V19" />
+                  </svg>
+                </span>
+                <span class="option-text">
+                  <b>Desktop-Verknüpfung</b>
+                  <span>SallyLauncher direkt auf dem Desktop</span>
+                </span>
+                <span class="switch on" data-key="desktop" role="switch" tabindex="0" aria-checked="true"></span>
+                <input type="checkbox" data-key="desktop" checked hidden />
+              </label>
+
+              <label class="option">
+                <span class="option-icon">
+                  <svg viewBox="0 0 24 24" width="17" height="17">
+                    <rect x="3.5" y="4" width="17" height="16" rx="2.4" />
+                    <path d="M3.5 9h17M8 4v5" />
+                  </svg>
+                </span>
+                <span class="option-text">
+                  <b>Startmenü-Eintrag</b>
+                  <span>Erscheint in „Alle Apps“</span>
+                </span>
+                <span class="switch on" data-key="startMenu" role="switch" tabindex="0" aria-checked="true"></span>
+                <input type="checkbox" data-key="startMenu" checked hidden />
+              </label>
+
+              <label class="option">
+                <span class="option-icon">
+                  <svg viewBox="0 0 24 24" width="17" height="17">
+                    <path d="M8.5 5.5l9 6.5-9 6.5z" />
+                  </svg>
+                </span>
+                <span class="option-text">
+                  <b>Nach der Installation starten</b>
+                  <span>SallyLauncher gleich öffnen</span>
+                </span>
+                <span class="switch on" data-key="launch" role="switch" tabindex="0" aria-checked="true"></span>
+                <input type="checkbox" data-key="launch" checked hidden />
+              </label>
+            </div>
+
+            <div class="warn hidden" id="uninstallWarning">
+              <b>SallyLauncher wird von diesem PC entfernt</b>
+              <span id="uninstallPath">—</span>
+            </div>
+
+            <label class="option only-uninstall" id="keepDataOption">
+              <span class="option-icon">
+                <svg viewBox="0 0 24 24" width="17" height="17">
+                  <path d="M12 4.5l7 3v5.2c0 3.4-2.8 5.9-7 6.8-4.2-.9-7-3.4-7-6.8V7.5z" />
+                </svg>
+              </span>
+              <span class="option-text">
+                <b>Profile &amp; Einstellungen behalten</b>
+                <span>Sonst werden Accounts, Profile und Mods aus %APPDATA%\SallyLauncher gelöscht</span>
+              </span>
+              <span class="switch" data-key="keepUserData" role="switch" tabindex="0" aria-checked="false"></span>
+              <input type="checkbox" data-key="keepUserData" hidden />
+            </label>
+          </section>
+
+          <!-- ----------------------------------------------------- progress -->
+          <section class="step" data-step="progress">
+            <div class="step-copy">
+              <h1 id="progressTitle">Wird installiert…</h1>
+              <p id="progressSub">Einen Moment – die Dateien werden kopiert.</p>
+            </div>
+
+            <div class="gauge">
+              <span class="gauge-value" id="progressPercent">0<i>%</i></span>
+              <div class="gauge-meta">
+                <span class="gauge-label" id="progressLabel">Vorbereiten…</span>
+                <span class="gauge-file" id="fileLine">—</span>
+              </div>
+            </div>
+
+            <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+            <div class="stages" id="stages">
+              <span class="stage" data-stage="copy">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4 4L19 7.5" /></svg>
+                Dateien kopieren
+              </span>
+              <span class="stage" data-stage="shortcuts">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4 4L19 7.5" /></svg>
+                Verknüpfungen
+              </span>
+              <span class="stage" data-stage="registry">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4 4L19 7.5" /></svg>
+                Registrierung
+              </span>
+            </div>
+
+            <p class="warn-note" id="progressNote">Bitte das Fenster während der Installation nicht schließen.</p>
+          </section>
+
+          <!-- --------------------------------------------------------- done -->
+          <section class="step" data-step="done">
+            <div class="done-art">
+              <span class="check">
+                <svg viewBox="0 0 24 24" width="32" height="32"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+              </span>
+            </div>
+            <div class="step-copy center">
+              <h1 id="doneTitle">SallyLauncher ist installiert</h1>
+              <p id="doneSub">Du findest den Launcher im Startmenü und auf dem Desktop.</p>
+            </div>
+            <div class="done-path-row">
+              <span class="done-path" id="donePath">—</span>
+              <button class="btn ghost compact" id="openFolder" type="button">Ordner</button>
+            </div>
+          </section>
+
+          <!-- -------------------------------------------------------- error -->
+          <section class="step" data-step="error">
+            <div class="done-art">
+              <span class="check error">
+                <svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 7v7M12 17.4v.6" /></svg>
+              </span>
+            </div>
+            <div class="step-copy center">
+              <h1>Das hat nicht geklappt</h1>
+              <p id="errorText">Unbekannter Fehler.</p>
+            </div>
+          </section>
+        </div>
+
+        <footer class="footer">
+          <span class="footer-note" id="footerNote">SallyLauncher Setup</span>
+          <div class="footer-actions">
+            <button class="btn ghost hidden" id="secondary" type="button">Abbrechen</button>
+            <button class="btn primary" id="primary" type="button">Installieren</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

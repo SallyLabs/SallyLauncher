@@ -1,0 +1,26 @@
+appId: com.sallylabs.sallylauncher.setup
+productName: SallyLauncher Setup
+copyright: Copyright © SallyLabs
+directories:
+  output: ../dist
+  buildResources: ../build
+files:
+  - main.js
+  - preload.js
+  - version.json
+  - assets/**/*
+  - renderer/**/*
+extraResources:
+  - from: payload
+    to: payload
+win:
+  icon: ../build/icon.ico
+  target:
+    - target: portable
+      arch:
+        - x64
+portable:
+  artifactName: SallyLauncher-Setup-${version}.exe
+  splashImage: splash.bmp
+  unpackDirName: SallyLauncherSetup
+  requestExecutionLevel: user

@@ -1,0 +1,14 @@
+node_modules/
+.env
+dist/
+installer/payload/
+*.exe
+build-log.txt
+*-log*.txt
+*.log
+screenshots/
+tmp-shot.js
+tmp-capture.ps1
+.freebuff/
+.cloud-attachments/
+.DS_Store

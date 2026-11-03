@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self' https:" />
+  <title>SallyLauncher</title>
+  <link rel="stylesheet" href="styles/app.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo"><img src="assets/logo.png" alt="SallyLauncher logo" /></div>
+        <span class="brand-name">SallyLauncher</span>
+      </div>
+
+      <nav class="nav" id="nav"></nav>
+
+      <div class="sidebar-foot"><span id="appVersion">v1.0.0</span></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn theme-btn" id="themeToggle" title="Toggle theme"></button>
+        <div class="clock">
+          <time id="clockTime">--:--</time>
+          <span id="clockStatus">In the main menu</span>
+        </div>
+        <div class="win-controls">
+          <button class="win-btn" id="winMin" title="Minimize"></button>
+          <button class="win-btn close" id="winClose" title="Close"></button>
+        </div>
+      </header>
+
+      <div class="update-bar hidden" id="updateBar"></div>
+
+      <div class="view" id="view"></div>
+
+      <div class="progress-strip hidden" id="progressStrip">
+        <div class="progress-label">
+          <span id="progressText">Preparing…</span>
+          <span id="progressPercent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

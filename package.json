@@ -1,0 +1,45 @@
+{
+  "name": "sallylauncher",
+  "productName": "SallyLauncher",
+  "version": "1.0.0",
+  "description": "SallyLauncher - a fast Minecraft launcher",
+  "main": "main.js",
+  "author": "SallyLauncher",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "npm run pack && node scripts/build-installer.js",
+    "splash": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-splash.ps1"
+  },
+  "build": {
+    "appId": "com.sallylabs.sallylauncher",
+    "productName": "SallyLauncher",
+    "copyright": "Copyright © SallyLabs",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      ".env",
+      "src/**/*",
+      "renderer/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "win": {
+      "icon": "build/icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "@xhayper/discord-rpc": "^1.5.1",
+    "adm-zip": "^0.6.1"
+  }
+}

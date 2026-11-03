@@ -1,0 +1,10 @@
+{
+  "name": "sallylauncher-setup",
+  "productName": "SallyLauncher Setup",
+  "version": "1.0.0",
+  "description": "SallyLauncher setup",
+  "main": "main.js",
+  "author": "SallyLabs",
+  "license": "MIT",
+  "private": true
+}
