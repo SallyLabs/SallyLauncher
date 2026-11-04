@@ -95,11 +95,13 @@ function updatesPanel(ctx) {
 
     const badge = info.available
       ? el('span', { class: 'tag green', text: `v${info.latestVersion} available` })
-      : info.noRelease
-        ? el('span', { class: 'tag', text: 'No release yet' })
-        : info.error
-          ? el('span', { class: 'tag', text: 'Check failed' })
-          : el('span', { class: 'tag', text: info.checkedAt ? 'Up to date' : 'Not checked yet' });
+      : info.error && info.noRelease
+        ? el('span', { class: 'tag', text: 'Release not reachable' })
+        : info.noRelease
+          ? el('span', { class: 'tag', text: 'No release yet' })
+          : info.error
+            ? el('span', { class: 'tag', text: 'Check failed' })
+            : el('span', { class: 'tag', text: info.checkedAt ? 'Up to date' : 'Not checked yet' });
 
     panel.append(
       el(
@@ -119,10 +121,10 @@ function updatesPanel(ctx) {
           el('div', { class: 'setting-label', text: 'SallyLauncher' }),
           el('div', {
             class: 'setting-hint',
-            text: info.noRelease
-              ? `No release on github.com/${info.repo || 'SallyLabs/SallyLauncher'} yet – the update bar stays hidden until the first release with a .exe asset exists.`
-              : info.error
-                ? info.error
+            text: info.error
+              ? info.error
+              : info.noRelease
+                ? `No release on github.com/${info.repo || 'SallyLabs/SallyLauncher'} yet – the update bar stays hidden until the first release with a .exe asset exists.`
                 : info.available
                 ? `Version ${info.latestVersion} is ready on GitHub – you run ${info.currentVersion}.`
                 : `You run v${ctx.state.data.appVersion} – checks github.com/${info.repo || 'SallyLabs/SallyLauncher'} on every start.`

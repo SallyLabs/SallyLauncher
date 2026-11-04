@@ -3,9 +3,13 @@
 /**
  * GitHub release checks for https://github.com/SallyLabs/SallyLauncher.
  *
- * The launcher asks the public GitHub API for the newest release, compares its
- * tag with the running app version and – when the user asks for it – downloads
- * the Windows installer from the release and starts it.
+ * The launcher asks the GitHub API for the newest releases, compares the tag
+ * with the running app version and – when the user asks for it – downloads the
+ * Windows installer from the release and starts it.
+ *
+ * The release list is used instead of `/releases/latest`, because that endpoint
+ * hides pre-releases. For a private repository a token can be supplied through
+ * `SALLY_GITHUB_TOKEN`; without it GitHub answers 404 for anonymous requests.
  */
 
 const fs = require('node:fs');
@@ -15,22 +19,23 @@ const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
 const REPO = 'SallyLabs/SallyLauncher';
-const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=10`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
 const USER_AGENT = 'SallyLauncher-Updater';
 
-/** "v1.2.3" / "1.2.3-beta" -> [1,2,3] */
+/** "v1.2.3" / "1.2.3-beta" -> [1,2,3]; a tag without a number ("v-b.001") -> null */
 function versionParts(value) {
-  return String(value || '')
-    .replace(/^v/i, '')
-    .split(/[.+-]/)
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => (Number.isFinite(part) ? part : 0));
+  const match = String(value || '')
+    .trim()
+    .match(/^v?(\d+(?:\.\d+)*)/i);
+  if (!match) return null;
+  return match[1].split('.').map((part) => Number.parseInt(part, 10) || 0);
 }
 
 function isNewer(latest, current) {
   const a = versionParts(latest);
   const b = versionParts(current);
+  if (!a || !b) return false;
   const length = Math.max(a.length, b.length);
   for (let i = 0; i < length; i += 1) {
     const left = a[i] || 0;
@@ -50,9 +55,12 @@ function pickAsset(release) {
 }
 
 function normalize(release, currentVersion) {
-  const latestVersion = String(release.tag_name || release.name || '').replace(/^v/i, '');
+  const tag = String(release.tag_name || '').trim();
+  const latestVersion = (tag || String(release.name || '')).replace(/^v(?=\d)/i, '') || currentVersion;
+  /* Tags like "v-b.001" carry no comparable version – treat any other tag as an update. */
+  const comparable = Boolean(versionParts(latestVersion) && versionParts(currentVersion));
   return {
-    available: isNewer(latestVersion, currentVersion),
+    available: comparable ? isNewer(latestVersion, currentVersion) : latestVersion !== currentVersion,
     currentVersion,
     latestVersion,
     name: release.name || release.tag_name || latestVersion,
@@ -64,23 +72,41 @@ function normalize(release, currentVersion) {
   };
 }
 
+function releaseHeaders() {
+  const headers = { 'User-Agent': USER_AGENT, accept: 'application/vnd.github+json' };
+  const token = String(process.env.SALLY_GITHUB_TOKEN || '').trim();
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
+}
+
 async function fetchRelease() {
-  const res = await fetch(RELEASE_API, {
-    headers: { 'User-Agent': USER_AGENT, accept: 'application/vnd.github+json' }
-  });
+  const res = await fetch(RELEASES_API, { headers: releaseHeaders() });
   if (res.status === 404) {
     return {
-      error: 'No release found. Publish a release on GitHub to make updates available.',
+      error:
+        `GitHub did not answer for ${REPO} (404). A private repository cannot be checked anonymously – ` +
+        'make the repository public or set SALLY_GITHUB_TOKEN.',
       missing: true
     };
+  }
+  if (res.status === 401) {
+    return { error: 'The GitHub token for the update check was rejected (401).' };
   }
   if (res.status === 403 || res.status === 429) {
     return { error: 'GitHub is rate-limiting the update check. Try again in a few minutes.' };
   }
   if (!res.ok) return { error: `GitHub answered HTTP ${res.status}.` };
-  const release = await res.json();
-  if (!release || release.draft) return { error: 'The latest GitHub release is still a draft.' };
-  return { release };
+  const body = await res.json();
+  const releases = (Array.isArray(body) ? body : [])
+    .filter((entry) => entry && !entry.draft)
+    .sort((a, b) => Date.parse(b.published_at || 0) - Date.parse(a.published_at || 0));
+  if (!releases.length) {
+    return {
+      error: 'No release found. Publish a release on GitHub to make updates available.',
+      missing: true
+    };
+  }
+  return { release: releases[0] };
 }
 
 /** Fetches the newest public release and compares it with `currentVersion`. */
@@ -149,4 +175,4 @@ async function downloadInstaller(update, { targetDir, onProgress = () => {} } = 
   return dest;
 }
 
-module.exports = { REPO, RELEASES_PAGE, check, downloadInstaller, isNewer };
+module.exports = { REPO, RELEASES_PAGE, check, downloadInstaller, isNewer, versionParts };
