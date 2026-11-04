@@ -10,6 +10,19 @@ import {
   switchToggle
 } from '../ui.js';
 const cache = new Map();
+
+/* Modrinth facet for the instance's loader – vanilla instances search without one. */
+function loaderFacet(profile) {
+  const loader = profile?.loader || 'fabric';
+  return loader === 'vanilla' ? '' : loader;
+}
+
+function loaderLabel(profile) {
+  const loader = profile?.loader || 'fabric';
+  if (loader === 'forge') return 'Forge mods only';
+  if (loader === 'vanilla') return 'no loader – pick Fabric or Forge for mods';
+  return 'Fabric mods only';
+}
 let lastRoot = null;
 let lastCtx = null;
 let follow = true;
@@ -414,7 +427,7 @@ async function doSwap(ctx, profile) {
       profileId: profile.id,
       projectId: state.project.id,
       versionId: state.selected,
-      loader: 'fabric'
+      loader: loaderFacet(profile)
     });
     if (result?.file && result.file !== state.mod.file) {
       await ctx.api.invoke('instance:deleteMod', profile.id, state.mod.file).catch(() => {});
@@ -453,14 +466,14 @@ async function installProject(ctx, profile, project) {
   repaint();
   try {
     const mcVersion = versionInfo(profile.versionId).minecraft;
-    const versions = await ctx.api.invoke('modrinth:versions', project.id, { gameVersion: mcVersion, loader: 'fabric' });
+    const versions = await ctx.api.invoke('modrinth:versions', project.id, { gameVersion: mcVersion, loader: loaderFacet(profile) });
     const version = versions?.[0];
     if (!version) throw new Error(`No ${project.title} release for Minecraft ${mcVersion}.`);
     await ctx.api.invoke('modrinth:installMod', {
       profileId: profile.id,
       projectId: project.id,
       versionId: version.id,
-      loader: 'fabric'
+      loader: loaderFacet(profile)
     });
     addState = { ...addState, busy: null };
     toast(`Installed ${project.title}.`, 'success');
@@ -496,7 +509,7 @@ function addModal(ctx, profile) {
       el('span', { class: 'instance-search' }, icon('search', 16), search),
       el('button', { class: 'btn primary small', type: 'button', onclick: () => runModSearch(ctx, profile) }, el('span', { text: state.loading ? 'Searching…' : 'Search' }))
     ),
-    el('div', { class: 'faint small', text: `${versionInfo(profile.versionId).label} · Fabric mods only` })
+    el('div', { class: 'faint small', text: `${versionInfo(profile.versionId).label} · ${loaderLabel(profile)}` })
   );
 
   const list = el('div', { class: 'mod-modal-list' });

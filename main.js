@@ -12,6 +12,7 @@ const { Store } = require('./src/main/store');
 const mojang = require('./src/main/mojang');
 const { cpuPercent, memoryStats, detectJava } = require('./src/main/system');
 const fabric = require('./src/main/fabric');
+const loaders = require('./src/main/loaders');
 const modrinth = require('./src/main/modrinth');
 const microsoft = require('./src/main/microsoft');
 const updates = require('./src/main/updates');
@@ -390,30 +391,66 @@ function registerIpc() {
 
   /** Downloads everything a profile needs: Fabric loader, client mods and the
       vanilla files into the shared cache. No Java required. */
+  /** Resolves the loader build of a profile (Fabric profile JSON or a Forge install). */
+  async function prepareLoader(profile, settings, { onLog = log } = {}) {
+    const loader = loaders.normalizeLoader(profile.loader);
+    const mcVersion = loaders.minecraftVersionOf(profile.versionId);
+    if (loader === 'vanilla') return mcVersion;
+
+    let javaPath = null;
+    if (loader === 'forge') {
+      /* The installer itself runs on the Java build this Minecraft version needs. */
+      let required = null;
+      try {
+        const meta = await mojang.resolveVersion(settings.gameDir, mcVersion);
+        required = meta.javaVersion?.majorVersion || null;
+      } catch {
+        /* requirements are optional here */
+      }
+      const java = await currentJava(required);
+      if (!java) throw new Error('Forge needs a Java runtime – install Java or set one in Settings.');
+      javaPath = java.path;
+    }
+
+    const info = await loaders.ensure({
+      loader,
+      mcVersion,
+      loaderVersion: profile.loaderVersion || '',
+      runtimeDir: store.sharedDir(),
+      javaPath,
+      onLog: (line) => onLog(line),
+      onProgress: (p) => send('progress', p)
+    });
+    return info.versionId;
+  }
+
   async function installProfileVersion(profileId) {
     const profile = store.getProfile(profileId) || store.getActiveProfile();
     if (!profile?.versionId) throw new Error('Pick a Minecraft version for this profile first.');
     const settings = store.effectiveSettings(profile);
     setGameState('preparing', { versionId: profile.versionId });
     try {
+      const launchId = await prepareLoader(profile, settings, { onLog: log });
       const report = await fabric.prepareClientMods({
         gameDir: settings.gameDir,
         runtimeDir: store.sharedDir(),
-        versionId: profile.versionId,
+        versionId: launchId,
+        loader: loaders.normalizeLoader(profile.loader),
+        loaderVersion: profile.loaderVersion || '',
         enabled: true,
         onLog: log
       });
-      const launchId = report.fabricVersionId || profile.versionId;
+      const finalId = report.fabricVersionId || launchId;
       await mojang.prepareLaunch({
         gameDir: settings.gameDir,
-        versionId: launchId,
+        versionId: finalId,
         settings,
         onProgress: (p) => send('progress', p),
         onLog: (line) => log(line)
       });
-      log(`Profile ${profile.name} is ready: ${launchId}`);
+      log(`Profile ${profile.name} is ready: ${finalId}`);
       setGameState('idle');
-      return { versionId: launchId, mods: report.injected, error: report.error };
+      return { versionId: finalId, mods: report.injected, error: report.error };
     } catch (err) {
       log(`Install failed: ${err.message}`);
       setGameState('idle', { error: err.message });
@@ -422,6 +459,18 @@ function registerIpc() {
   }
 
   ipcMain.handle('versions:install', async (_e, id) => installProfileVersion(id));
+
+  /* -------------------------------------------------------------- loaders */
+
+  ipcMain.handle('loaders:list', () => loaders.LOADERS);
+
+  ipcMain.handle('loaders:versions', async (_e, options = {}) => {
+    try {
+      return await loaders.versions(options);
+    } catch (err) {
+      return { loader: loaders.normalizeLoader(options.loader), mcVersion: options.mcVersion || null, versions: [], error: err.message };
+    }
+  });
 
   /* ------------------------------------------------------------ modrinth */
 
@@ -964,14 +1013,21 @@ function registerIpc() {
       );
     }
 
-    /* The bundled client mod always ships with every launch: Fabric is
-       installed for whatever version was picked and the jars are copied in. */
+    /* The instance's loader decides what gets prepared: Fabric gets its profile
+       JSON plus the bundled client mod, Forge gets installed, vanilla stays as
+       it is. */
+    const loaderId = loaders.normalizeLoader(profile.loader);
     let launchVersion = versionId;
     setLaunch(profile.id, { state: 'preparing', versionId, name: profile.name });
+    if (loaderId !== 'vanilla') {
+      launchVersion = await prepareLoader(profile, settings, { onLog: (line) => log(line, profile.id) });
+    }
     const clientReport = await fabric.prepareClientMods({
       gameDir: settings.gameDir,
       runtimeDir: store.sharedDir(),
-      versionId,
+      versionId: launchVersion,
+      loader: loaderId,
+      loaderVersion: profile.loaderVersion || '',
       enabled: true,
       onLog: (line) => log(line, profile.id)
     });

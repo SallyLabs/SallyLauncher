@@ -38,59 +38,98 @@ function isLoaderVersion(versionId) {
 
 /** Simple match for Fabric dependency ranges such as "~26.3", ">=26.3" or "*". */
 function matchesMinecraft(range, mcVersion) {
-  if (!range || range === '*') return true;
-  const cleaned = String(range).replace(/^[~^>=<]+/, '').trim();
-  if (!cleaned) return true;
-  return mcVersion === cleaned || mcVersion.startsWith(`${cleaned}.`) || mcVersion.startsWith(cleaned);
+  return satisfiesMinecraft(range, mcVersion);
 }
 
+/** Splits "26.3-rc.1" into numbers plus the pre-release identifiers. */
 function versionParts(value) {
   const clean = String(value || '').trim().replace(/^[vV]/, '');
-  return clean
-    .split(/[.\-+]/)
-    .map((part) => {
-      const num = parseInt(part, 10);
-      return Number.isFinite(num) ? num : 0;
-    });
+  const match = /^([0-9.]*)(?:[-+](.*))?$/.exec(clean) || [];
+  const numbers = String(match[1] || '')
+    .split('.')
+    .filter(Boolean)
+    .map((part) => parseInt(part, 10));
+  const pre = String(match[2] || '')
+    .split(/[.+-]/)
+    .filter(Boolean);
+  return { numbers, pre };
 }
 
+/**
+ * Semver-ish comparison that also copes with Minecraft versions: numbers first,
+ * then the pre-release tag (a release like 26.3 is newer than 26.3-rc.1).
+ */
 function compareVersions(a, b) {
   const left = versionParts(a);
   const right = versionParts(b);
-  const size = Math.max(left.length, right.length);
-  for (let i = 0; i < size; i += 1) {
-    const l = left[i] ?? 0;
-    const r = right[i] ?? 0;
+  for (let i = 0; i < Math.max(left.numbers.length, right.numbers.length); i += 1) {
+    const l = left.numbers[i] ?? 0;
+    const r = right.numbers[i] ?? 0;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  if (!left.pre.length && !right.pre.length) return 0;
+  if (!left.pre.length) return 1;
+  if (!right.pre.length) return -1;
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i += 1) {
+    const l = left.pre[i];
+    const r = right.pre[i];
+    if (l === undefined) return -1;
+    if (r === undefined) return 1;
+    const lNum = Number.parseInt(l, 10);
+    const rNum = Number.parseInt(r, 10);
+    const lIsNum = String(lNum) === l;
+    const rIsNum = String(rNum) === r;
+    if (lIsNum && rIsNum && lNum !== rNum) return lNum < rNum ? -1 : 1;
+    if (lIsNum !== rIsNum) return lIsNum ? -1 : 1;
     if (l !== r) return l < r ? -1 : 1;
   }
   return 0;
 }
 
+/** One constraint such as ">=26.3", "26.3.x" or "~1.20". */
+function tokenMatchesMinecraft(token, version) {
+  const match = /^(>=|<=|>|<|=|~|\^)?\s*(.+)$/.exec(token);
+  if (!match) return true;
+  const op = match[1] || '=';
+  /* ranges such as "~26.3-" carry a trailing separator that is not part of the version */
+  const target = match[2].trim().replace(/[-+.]+$/, '');
+  if (!target) return true;
+  /* Fabric mods also spell wildcards as "26.3.x" or "26.3.*" */
+  if (/^([xX*]|[0-9][0-9.]*[.](x|X|\*))$/.test(target)) {
+    const prefix = target.replace(/[.]?([xX*])$/, '').replace(/[.-]+$/, '');
+    if (!prefix) return true;
+    const onLine = version === prefix || version.startsWith(`${prefix}.`) || version.startsWith(`${prefix}-`);
+    const cmp = compareVersions(version, prefix);
+    if (op === '<') return !onLine && cmp < 0;
+    if (op === '<=') return onLine || cmp < 0;
+    if (op === '>') return !onLine && cmp > 0;
+    if (op === '>=') return onLine || cmp > 0;
+    return onLine;
+  }
+  const cmp = compareVersions(version, target);
+  if (op === '>=') return cmp >= 0;
+  if (op === '<=') return cmp <= 0;
+  if (op === '>') return cmp > 0;
+  if (op === '<') return cmp < 0;
+  /* ~26.3 / ^26.3 / exact pin: the same release line, plus newer patch levels */
+  return version === target || version.startsWith(`${target}.`) || version.startsWith(`${target}-`);
+}
+
 /**
  * Stricter check used before parking someone else's jar: only says "no" when
- * the declared range clearly excludes the version. Understands space separated
- * constraint lists (e.g. ">=26.3 <27") plus ~, ^, >=, <=, >, < and exact pins.
+ * the declared range clearly excludes the version. Understands alternatives
+ * ("a || b"), space separated constraint lists (">=26.3 <27"), wildcards
+ * ("26.3.x") and pre-release bounds (">=26.3-rc.1").
  */
 function satisfiesMinecraft(range, mcVersion) {
   if (!range || range === '*') return true;
   const version = String(mcVersion || '').trim();
   if (!version) return true;
-  const tokens = String(range).trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return true;
-  return tokens.every((token) => {
-    const match = /^(>=|<=|>|<|=|~|\^)?\s*(.+)$/.exec(token);
-    if (!match) return true;
-    const op = match[1] || '=';
-    /* ranges such as "~26.3-" carry a trailing separator that is not part of the version */
-    const target = match[2].trim().replace(/[-+.]+$/, '');
-    if (!target) return true;
-    const cmp = compareVersions(version, target);
-    if (op === '>=') return cmp >= 0;
-    if (op === '<=') return cmp <= 0;
-    if (op === '>') return cmp > 0;
-    if (op === '<') return cmp < 0;
-    /* ~26.3 / ^26.3 / exact pin: the same release line, plus newer patch levels */
-    return version === target || version.startsWith(`${target}.`) || version.startsWith(target);
+  const alternatives = String(range).split('||').map((part) => part.trim()).filter(Boolean);
+  if (!alternatives.length) return true;
+  return alternatives.some((alternative) => {
+    const tokens = alternative.split(/\s+/).filter(Boolean);
+    return tokens.every((token) => tokenMatchesMinecraft(token, version));
   });
 }
 
@@ -139,13 +178,19 @@ function clientModReport(versionId) {
   return { mcVersion, mods };
 }
 
-async function ensureFabricVersion(gameDir, mcVersion, { onLog = () => {}, versionsDir = '' } = {}) {
+async function ensureFabricVersion(gameDir, mcVersion, { onLog = () => {}, versionsDir = '', loaderVersion = '' } = {}) {
   const loaders = await fetchJson(`${FABRIC_META}/versions/loader/${encodeURIComponent(mcVersion)}`);
   if (!Array.isArray(loaders) || !loaders.length) {
     throw new Error(`Fabric has no loader for Minecraft ${mcVersion}`);
   }
-  const loader = loaders.find((entry) => entry.loader?.stable) || loaders[0];
-  const loaderVersion = loader.loader?.version;
+  /* An explicit build from the profile wins, otherwise the stable one. */
+  const requested = loaderVersion ? loaders.find((entry) => entry.loader?.version === loaderVersion) : null;
+  const loader = requested || loaders.find((entry) => entry.loader?.stable) || loaders[0];
+  const chosen = loader.loader?.version;
+  return writeFabricProfile(gameDir, mcVersion, chosen, { onLog, versionsDir });
+}
+
+async function writeFabricProfile(gameDir, mcVersion, loaderVersion, { onLog = () => {}, versionsDir = '' } = {}) {
   const versionId = `fabric-loader-${loaderVersion}-${mcVersion}`;
   /* The loader profile has to land next to the vanilla version files, which
      live in the shared runtime folder, not inside the instance. */
@@ -342,13 +387,21 @@ async function pruneStaleFabricApi(gameDir, keepName, { mcVersion, onLog = () =>
   } catch {
     return;
   }
-  for (const name of entries) {
-    if (keepName && name === keepName) continue;
-    if (mcVersion && name.includes(`+${mcVersion}`)) continue;
-    if (!/^fabric-api-.*\.jar$/i.test(name)) continue;
+  const jars = entries.filter((name) => /^fabric-api-.*\.jar$/i.test(name));
+  if (!jars.length) return;
+  /* Two Fabric API builds in one mods folder make the loader refuse to boot,
+     so exactly one jar stays: the freshly installed one, otherwise the newest
+     build for this Minecraft version. */
+  let keep = keepName || null;
+  if (!keep) {
+    const matching = jars.filter((name) => !mcVersion || name.includes(`+${mcVersion}`));
+    keep = (matching.length ? matching : jars).sort().reverse()[0];
+  }
+  for (const name of jars) {
+    if (name === keep) continue;
     try {
       await moveFile(path.join(modsDir, name), path.join(parkedDir, name));
-      onLog(`Fabric API ${name} parked (wrong Minecraft version)`);
+      onLog(`Fabric API ${name} parked (${keep} is kept)`);
     } catch (err) {
       onLog(`Could not park ${name}: ${err.message}`);
     }
@@ -380,10 +433,12 @@ async function ensureFabricApi(gameDir, mcVersion, { onLog = () => {} } = {}) {
 }
 
 /** Full preparation step used before a launch. Never throws for mod issues. */
-async function prepareClientMods({ gameDir, versionId, enabled, runtimeDir = '', onLog = () => {} }) {
+async function prepareClientMods({ gameDir, versionId, enabled, runtimeDir = '', onLog = () => {}, loader = 'fabric', loaderVersion = '' }) {
   const mcVersion = baseMinecraftVersion(versionId);
+  const loaderId = String(loader || 'fabric').toLowerCase();
   const report = {
     enabled: Boolean(enabled),
+    loader: loaderId,
     mcVersion,
     fabricVersionId: null,
     injected: [],
@@ -394,11 +449,13 @@ async function prepareClientMods({ gameDir, versionId, enabled, runtimeDir = '',
     error: null
   };
   if (!enabled) return report;
+  /* SallyClient is a Fabric mod – Forge and vanilla instances stay untouched. */
+  if (loaderId !== 'fabric') return report;
 
   try {
     report.fabricVersionId = isLoaderVersion(versionId)
       ? versionId
-      : await ensureFabricVersion(gameDir, mcVersion, { onLog, versionsDir: runtimeDir });
+      : await ensureFabricVersion(gameDir, mcVersion, { onLog, versionsDir: runtimeDir, loaderVersion });
     const injected = await installBundledMods(gameDir, mcVersion, { onLog });
     const bundledFiles = injected.injected.map((mod) => mod.file);
     report.restored = await restoreCompatibleMods(gameDir, mcVersion, { onLog, skip: bundledFiles });
@@ -426,6 +483,7 @@ module.exports = {
   prepareClientMods,
   clientModReport,
   ensureFabricVersion,
+  writeFabricProfile,
   installBundledMods,
   parkIncompatibleMods,
   restoreCompatibleMods,

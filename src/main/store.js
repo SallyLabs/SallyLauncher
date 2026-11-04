@@ -97,6 +97,8 @@ function makeProfile(patch = {}) {
     id,
     name: patch.name || 'New profile',
     versionId: patch.versionId || null,
+    loader: patch.loader === 'vanilla' || patch.loader === 'forge' ? patch.loader : 'fabric',
+    loaderVersion: patch.loaderVersion || null,
     gameDir: patch.gameDir || profileDir(id),
     modpack: patch.modpack || null,
     memoryMb: Math.max(1024, Math.min(32768, Number(patch.memoryMb) || 4096)),
@@ -180,6 +182,11 @@ class Store {
     }
     if (!data.accounts.some((a) => a.id === data.activeAccountId)) {
       data.activeAccountId = data.accounts[0]?.id || null;
+    }
+
+    /* Profiles from before the loader picker are Fabric instances. */
+    for (const profile of data.profiles) {
+      if (!profile.loader) profile.loader = 'fabric';
     }
 
     if (!data.profiles.length) {

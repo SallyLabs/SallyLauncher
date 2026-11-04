@@ -375,8 +375,11 @@ async function prepareLaunch({ gameDir, versionId, settings, onProgress = () => 
 
   /* --- client jar */
   const clientJar = path.join(versionDir, `${versionId}.jar`);
+  /* A Forge install brings its own patched client jar – never replace it with
+     the vanilla one. */
+  const keepClientJar = /forge/i.test(versionId) && fs.existsSync(clientJar);
   const tasks = [];
-  if (meta.downloads?.client?.url) {
+  if (meta.downloads?.client?.url && !keepClientJar) {
     tasks.push({
       url: meta.downloads.client.url,
       dest: clientJar,
@@ -472,7 +475,7 @@ async function prepareLaunch({ gameDir, versionId, settings, onProgress = () => 
   }
 
   /* --- arguments */
-  if (meta.downloads?.client?.url) classpath.push(clientJar);
+  if (fs.existsSync(clientJar)) classpath.push(clientJar);
 
   const vars = {
     natives_directory: nativesDir,
