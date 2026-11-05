@@ -4435,3 +4435,13 @@ input[type='range']::-webkit-slider-thumb {
   margin: 0 0 6px;
   font-size: 12.5px;
 }
+
+/* --- background idle -------------------------------------------------------
+   Endless decorative animations (3D limbs, logo blink, shimmer) are paused
+   while the launcher is unfocused or hidden, so a launcher left open next to a
+   running game costs no CPU or GPU. */
+html.is-idle *,
+html.is-idle *::before,
+html.is-idle *::after {
+  animation-play-state: paused !important;
+}

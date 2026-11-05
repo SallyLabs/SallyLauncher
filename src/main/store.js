@@ -97,8 +97,8 @@ function makeProfile(patch = {}) {
     id,
     name: patch.name || 'New profile',
     versionId: patch.versionId || null,
-    loader: patch.loader === 'vanilla' || patch.loader === 'forge' ? patch.loader : 'fabric',
-    loaderVersion: patch.loaderVersion || null,
+    loader: String(patch.loader || 'fabric').toLowerCase(),
+    loaderVersion: patch.loaderVersion || '',
     gameDir: patch.gameDir || profileDir(id),
     modpack: patch.modpack || null,
     memoryMb: Math.max(1024, Math.min(32768, Number(patch.memoryMb) || 4096)),
@@ -133,7 +133,9 @@ const DEFAULTS = () => ({
     cosmeticId: 'sally-crown',
     skinLibrary: [],
     skinId: 'account',
-    theme: 'dark'
+    theme: 'dark',
+    /* false runs the launcher on the software renderer – see main.js */
+    hardwareAcceleration: true
   },
   accounts: [],
   activeAccountId: null,
@@ -145,18 +147,31 @@ const DEFAULTS = () => ({
 class Store {
   constructor() {
     this.file = () => path.join(app.getPath('userData'), 'sallylauncher.json');
+    this.backupFile = () => `${this.file()}.bak`;
     this.data = null;
+  }
+
+  /**
+   * Reads the state file. A crash or power cut in the middle of a write used to
+   * leave a truncated file, which silently reset every profile and account;
+   * the copy kept by `save()` is the fallback for exactly that case.
+   */
+  readState() {
+    for (const file of [this.file(), this.backupFile()]) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch {
+        /* missing or damaged – try the next copy */
+      }
+    }
+    return {};
   }
 
   load() {
     if (this.data) return this.data;
     const base = DEFAULTS();
-    let saved = {};
-    try {
-      saved = JSON.parse(fs.readFileSync(this.file(), 'utf8'));
-    } catch {
-      saved = {};
-    }
+    let saved = this.readState();
 
     const data = {
       ...base,
@@ -184,11 +199,6 @@ class Store {
       data.activeAccountId = data.accounts[0]?.id || null;
     }
 
-    /* Profiles from before the loader picker are Fabric instances. */
-    for (const profile of data.profiles) {
-      if (!profile.loader) profile.loader = 'fabric';
-    }
-
     if (!data.profiles.length) {
       const profile = makeProfile({
         name: 'Default',
@@ -212,6 +222,8 @@ class Store {
         profile.gameDir = profileDir(profile.id);
       }
       if (!profile.modpack) profile.modpack = null;
+      if (!profile.loader) profile.loader = 'fabric';
+      if (!profile.loaderVersion) profile.loaderVersion = '';
       if (!Number.isFinite(Number(profile.playtimeMs))) profile.playtimeMs = 0;
       if (!profile.lastPlayedAt) profile.lastPlayedAt = null;
     }
@@ -221,10 +233,22 @@ class Store {
     return data;
   }
 
+  /**
+   * Writes through a temp file and renames it into place: a rename is atomic, so
+   * an interrupted write can never leave half a JSON file behind.
+   */
   save() {
     try {
-      fs.mkdirSync(path.dirname(this.file()), { recursive: true });
-      fs.writeFileSync(this.file(), JSON.stringify(this.data, null, 2), 'utf8');
+      const target = this.file();
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const tmp = `${target}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf8');
+      try {
+        if (fs.existsSync(target)) fs.copyFileSync(target, this.backupFile());
+      } catch {
+        /* a missing backup is not worth failing the save for */
+      }
+      fs.renameSync(tmp, target);
     } catch (err) {
       console.error('Failed to save launcher state:', err.message);
     }

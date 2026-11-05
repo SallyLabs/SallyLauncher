@@ -12,28 +12,11 @@ function repaint() {
   render(lastRoot, lastCtx);
 }
 
-function minecraftVersionOf(versionId) {
-  const id = String(versionId || '');
-  const fabric = /^(?:fabric|quilt)-loader-[\d.]+-(.+)$/.exec(id);
-  if (fabric) return fabric[1];
-  const forge = /^(.+)-forge-[\d.]+$/.exec(id);
-  if (forge) return forge[1];
-  return id;
-}
-
-const LOADER_CHOICES = [
-  { id: 'vanilla', label: 'Vanilla', hint: 'Plain Minecraft – no loader, no bundled mods.' },
-  { id: 'fabric', label: 'Fabric', hint: 'Light and quick – the bundled SallyClient mod runs here.' },
-  { id: 'forge', label: 'Forge', hint: 'Classic loader for large modpacks – installed with the official installer.' }
-];
-
 function profileDefaults(ctx) {
   const profile = ctx.state.data.activeProfile;
   return {
     name: '',
-    versionId: minecraftVersionOf(profile?.versionId || ctx.state.data.selectedVersion || ''),
-    loader: profile?.loader || 'fabric',
-    loaderVersion: profile?.loaderVersion || '',
+    versionId: profile?.versionId || ctx.state.data.selectedVersion || '',
     gameDir: '',
     memoryMb: profile?.memoryMb || 4096,
     jvmArgs: '',
@@ -48,8 +31,7 @@ function profileCards(ctx) {
   const data = ctx.state.data;
   const cards = data.profiles.map((profile) => {
     const isActive = profile.id === data.activeProfileId;
-    const version = minecraftVersionOf(profile.versionId) || 'No version';
-    const loaderLabel = (LOADER_CHOICES.find((choice) => choice.id === (profile.loader || 'fabric')) || {}).label || 'Fabric';
+    const version = profile.versionId || 'No version';
     const instance = (data.instances || []).find((entry) => entry.profileId === profile.id);
     const running = instance?.state === 'running';
     const preparing = instance?.state === 'preparing';
@@ -82,7 +64,7 @@ function profileCards(ctx) {
           'div',
           { style: { minWidth: '0' } },
           el('div', { class: 'profile-title', text: profile.name }),
-          el('div', { class: 'profile-sub', text: `${loaderLabel} ${version} · ${formatMb(profile.memoryMb)}` })
+          el('div', { class: 'profile-sub', text: `${version} · ${formatMb(profile.memoryMb)}` })
         ),
         running || preparing
           ? el('span', { class: 'tag green', text: preparing ? 'Starting' : 'Running' })
@@ -93,7 +75,6 @@ function profileCards(ctx) {
       el(
         'div',
         { class: 'profile-meta' },
-        el('div', { class: 'kv' }, el('span', { text: 'Loader' }), el('b', { text: `${loaderLabel} ${profile.loaderVersion || ''}`.trim() })),
         el('div', { class: 'kv' }, el('span', { text: 'Version' }), el('b', { text: version })),
         profile.modpack ? el('div', { class: 'kv' }, el('span', { text: 'Modpack' }), el('b', { text: `${profile.modpack.title}${profile.modpack.version ? ` ${profile.modpack.version}` : ''}` })) : null,
         el('div', { class: 'kv' }, el('span', { text: 'Instance' }), el('b', { class: 'mono small', text: profile.gameDir || '—' })),
@@ -174,97 +155,84 @@ function profileCards(ctx) {
 function profileForm(ctx) {
   const data = ctx.state.data;
   const existing = editing && editing !== 'new' ? data.profiles.find((p) => p.id === editing) : null;
-  const values = existing
-    ? { ...existing, versionId: minecraftVersionOf(existing.versionId), loader: existing.loader || 'fabric' }
-    : profileDefaults(ctx);
-
-  if (!ctx.state.versions) ctx.loadVersions();
-
-  /* Minecraft versions: the release list from Mojang plus whatever is installed. */
+  const values = existing ? { ...existing } : profileDefaults(ctx);
   const installed = ctx.state.versions?.installed || [];
   const available = ctx.state.versions?.available || [];
-  const mcVersions = [];
-  const seenMc = new Set();
-  const addMc = (id, installedFlag = false) => {
-    const version = minecraftVersionOf(id);
-    if (!version || seenMc.has(version)) return;
-    seenMc.add(version);
-    mcVersions.push({ id: version, installed: installedFlag });
-  };
-  installed.forEach((version) => addMc(version.id, true));
-  available.filter((version) => version.type === 'release').forEach((version) => addMc(version.id));
-  if (values.versionId && !seenMc.has(values.versionId)) addMc(values.versionId, true);
+  const releases = available.filter((version) => version.type === 'release');
+  const seen = new Set(releases.map((version) => version.id));
+  const versions = [
+    ...installed.filter((version) => !seen.has(version.id)).map((v) => ({ ...v, installed: true })),
+    ...releases
+  ];
+
+  if (!ctx.state.versions) ctx.loadVersions();
 
   const name = el('input', { type: 'text', value: values.name, placeholder: 'e.g. Fabric 1.21 - Performance', spellcheck: false, style: { width: '100%' } });
 
   const versionSelect = el(
     'select',
     { style: { width: '100%' } },
-    el('option', { value: '', text: mcVersions.length ? 'Choose a Minecraft version' : 'No versions available yet' }),
-    ...mcVersions.map((version) =>
+    el('option', { value: '', text: versions.length ? 'Choose a version' : 'No versions installed yet' }),
+    ...versions.map((version) =>
       el('option', {
         value: version.id,
-        text: `${version.id}${version.installed ? ' · installed' : ''}`,
+        text: `${version.id}${version.loader && version.loader !== 'Vanilla' ? ` (${version.loader})` : ''}${version.installed ? ' · installed' : ''}`,
         selected: version.id === values.versionId
       })
     )
   );
+  if (values.versionId && !versions.some((version) => version.id === values.versionId)) {
+    versionSelect.appendChild(el('option', { value: values.versionId, text: `${values.versionId} · installed`, selected: true }));
+  }
 
+  /* Loader choice lives on the profile, so the same Minecraft version can run
+     with Fabric, Forge or plain vanilla mods. */
   const loaderSelect = el(
     'select',
     { style: { width: '100%' } },
-    ...LOADER_CHOICES.map((choice) =>
-      el('option', { value: choice.id, text: choice.label, selected: choice.id === (values.loader || 'fabric') })
-    )
+    el('option', { value: 'fabric', text: 'Fabric', selected: (values.loader || 'fabric') === 'fabric' }),
+    el('option', { value: 'forge', text: 'Forge', selected: values.loader === 'forge' }),
+    el('option', { value: 'vanilla', text: 'Vanilla (no mods)', selected: values.loader === 'vanilla' })
   );
 
-  const loaderVersionSelect = el('select', { style: { width: '100%' } });
-  const loaderHint = el('div', { class: 'faint', style: { marginTop: '4px' }, text: '' });
+  const loaderVersionSelect = el('select', { style: { width: '100%' } }, el('option', { value: '', text: 'Recommended' }));
+  const loaderVersionField = el('label', { class: 'field' }, el('span', { text: 'Loader version' }), loaderVersionSelect);
 
-  const fillLoaderVersions = async () => {
-    const loader = loaderSelect.value;
-    const mcVersion = versionSelect.value;
-    const choice = LOADER_CHOICES.find((entry) => entry.id === loader);
-    loaderHint.textContent = choice?.hint || '';
-    loaderVersionSelect.innerHTML = '';
-    if (loader === 'vanilla') {
-      loaderVersionSelect.disabled = true;
-      loaderVersionSelect.appendChild(el('option', { value: '', text: 'Not needed for vanilla' }));
-      return;
-    }
-    if (!mcVersion) {
-      loaderVersionSelect.disabled = true;
-      loaderVersionSelect.appendChild(el('option', { value: '', text: 'Pick a Minecraft version first' }));
-      return;
-    }
-    loaderVersionSelect.disabled = true;
-    loaderVersionSelect.appendChild(el('option', { value: '', text: 'Loading builds…' }));
-    try {
-      const result = await ctx.api.invoke('loaders:versions', { loader, mcVersion });
-      const list = result?.versions || [];
-      loaderVersionSelect.innerHTML = '';
-      if (!list.length) {
-        loaderVersionSelect.appendChild(el('option', { value: '', text: 'No builds available' }));
-        loaderVersionSelect.disabled = true;
-        loaderHint.textContent = result?.error || `No ${loader} build for Minecraft ${mcVersion}.`;
-        return;
-      }
-      for (const entry of list) {
-        const suffix = entry.recommended ? ' · recommended' : entry.latest ? ' · latest' : entry.stable ? ' · stable' : '';
-        loaderVersionSelect.appendChild(
-          el('option', { value: entry.version, text: `${entry.version}${suffix}`, selected: entry.version === values.loaderVersion })
-        );
-      }
-      loaderVersionSelect.disabled = false;
-      loaderHint.textContent = `${choice?.hint || ''} ${list.length} build${list.length === 1 ? '' : 's'} for ${mcVersion}.`.trim();
-    } catch (err) {
-      loaderVersionSelect.innerHTML = '';
-      loaderVersionSelect.disabled = true;
-      loaderVersionSelect.appendChild(el('option', { value: '', text: 'Could not load builds' }));
-      loaderHint.textContent = err.message;
-    }
+  const mcVersionOf = (id) => {
+    const value = String(id || '');
+    const fabricMatch = /^fabric-loader-[^-]+-(.+)$/i.exec(value);
+    if (fabricMatch) return fabricMatch[1];
+    const forgeMatch = /^(.+?)-forge-.+$/i.exec(value);
+    if (forgeMatch) return forgeMatch[1];
+    return value;
   };
 
+  let loaderRequest = 0;
+  const fillLoaderVersions = async () => {
+    const loader = loaderSelect.value;
+    loaderVersionField.style.display = loader === 'vanilla' ? 'none' : '';
+    const mcVersion = mcVersionOf(versionSelect.value);
+    const request = ++loaderRequest;
+    loaderVersionSelect.replaceChildren(el('option', { value: '', text: 'Recommended' }));
+    if (!mcVersion || loader === 'vanilla') return;
+    try {
+      const result = await ctx.api.invoke('loaders:versions', { loader, mcVersion });
+      if (request !== loaderRequest) return;
+      const entries = result?.versions || [];
+      loaderVersionSelect.replaceChildren(el('option', { value: '', text: 'Recommended' }));
+      for (const entry of entries) {
+        loaderVersionSelect.appendChild(
+          el('option', {
+            value: entry.version,
+            text: `${entry.version}${entry.stable ? ' · recommended' : ''}`,
+            selected: entry.version === values.loaderVersion
+          })
+        );
+      }
+    } catch (err) {
+      if (request === loaderRequest) toast(err.message, 'error');
+    }
+  };
   loaderSelect.addEventListener('change', () => {
     values.loaderVersion = '';
     fillLoaderVersions();
@@ -273,6 +241,7 @@ function profileForm(ctx) {
     values.loaderVersion = '';
     fillLoaderVersions();
   });
+  fillLoaderVersions();
 
   const memoryLabel = el('span', { class: 'range-value', text: formatMb(values.memoryMb) });
   const memory = el('input', { type: 'range', min: 1024, max: 16384, step: 512, value: values.memoryMb });
@@ -304,7 +273,7 @@ function profileForm(ctx) {
       name: name.value.trim() || 'Untitled profile',
       versionId: versionSelect.value || null,
       loader: loaderSelect.value,
-      loaderVersion: loaderVersionSelect.value || null,
+      loaderVersion: loaderVersionSelect.value || '',
       gameDir: gameDir.value.trim(),
       memoryMb: Number(memory.value),
       jvmArgs: jvm.value.trim(),
@@ -321,15 +290,13 @@ function profileForm(ctx) {
       await ctx.refresh();
       toast(`Profile ${payload.name} saved.`, 'success');
       if (profile?.id && payload.versionId) {
-        toast(`Installing Minecraft${payload.loader !== 'vanilla' ? ` with ${payload.loader}` : ''}…`, 'info');
+        toast('Installing Minecraft and the client mod…', 'info');
         ctx.api.invoke('versions:install', profile.id).catch((err) => toast(err.message, 'error'));
       }
     } catch (err) {
       toast(err.message, 'error');
     }
   };
-
-  fillLoaderVersions();
 
   return el(
     'div',
@@ -346,9 +313,9 @@ function profileForm(ctx) {
       'div',
       { class: 'form-grid' },
       el('label', { class: 'field' }, el('span', { text: 'Name' }), name),
-      el('label', { class: 'field' }, el('span', { text: 'Minecraft version' }), versionSelect),
+      el('label', { class: 'field' }, el('span', { text: 'Version' }), versionSelect),
       el('label', { class: 'field' }, el('span', { text: 'Loader' }), loaderSelect),
-      el('label', { class: 'field' }, el('span', { text: 'Loader version' }), el('div', { style: { width: '100%' } }, loaderVersionSelect, loaderHint)),
+      loaderVersionField,
       el('label', { class: 'field' }, el('span', { text: 'Memory' }), el('div', { class: 'setting-control' }, memory, memoryLabel)),
       el(
         'label',

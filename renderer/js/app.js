@@ -253,8 +253,8 @@ async function checkUpdates(showToast = false) {
 async function installUpdate() {
   try {
     const result = await api.invoke('updates:install');
-    if (result?.opened) toast('Opened the release page – pick the installer there.', 'info');
-    else toast('Installer started. SallyLauncher closes so the update can install.', 'success');
+    if (result?.opened) toast('This release has no in-place update – the release page opens instead.', 'info');
+    else toast('Update is being installed. SallyLauncher restarts, running games stay open.', 'success');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -424,6 +424,25 @@ async function init() {
   updateProgress();
 
   api.onEvent(handleEvent);
+
+  /* Decorative motion is cheap but endless; while the launcher sits in the
+     background (for example next to a running game) it costs nothing. The flag
+     follows events only – `document.hasFocus()` can stay false after the window
+     is restored, which would freeze the UI until the first click. */
+  let idle = false;
+  const setIdle = (next) => {
+    if (idle === next) return;
+    idle = next;
+    document.documentElement.classList.toggle('is-idle', idle);
+  };
+  const syncIdle = () => setIdle(document.hidden);
+  document.addEventListener('visibilitychange', syncIdle);
+  window.addEventListener('blur', () => setIdle(true));
+  window.addEventListener('focus', () => setIdle(false));
+  /* Any real input means the user is looking at the window again. */
+  window.addEventListener('pointerdown', () => setIdle(false), true);
+  window.addEventListener('keydown', () => setIdle(false), true);
+  syncIdle();
 
   api.invoke('logs:get').then((lines) => {
     state.logs = (Array.isArray(lines) ? lines : []).map((line) =>

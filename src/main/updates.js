@@ -54,6 +54,17 @@ function pickAsset(release) {
   return { name: preferred.name, url: preferred.browser_download_url, size: preferred.size || 0 };
 }
 
+/**
+ * The small update payload: the packed app.asar alone. Replacing it updates the
+ * launcher in place instead of reinstalling the whole ~180 MB setup.
+ */
+function pickPatchAsset(release) {
+  const assets = release?.assets || [];
+  const asar = assets.find((asset) => /\.asar$/i.test(asset.name || ''));
+  if (!asar) return null;
+  return { name: asar.name, url: asar.browser_download_url, size: asar.size || 0 };
+}
+
 function normalize(release, currentVersion) {
   const tag = String(release.tag_name || '').trim();
   const latestVersion = (tag || String(release.name || '')).replace(/^v(?=\d)/i, '') || currentVersion;
@@ -68,7 +79,8 @@ function normalize(release, currentVersion) {
     publishedAt: release.published_at || null,
     htmlUrl: release.html_url || RELEASES_PAGE,
     prerelease: Boolean(release.prerelease),
-    asset: pickAsset(release)
+    asset: pickAsset(release),
+    patch: pickPatchAsset(release)
   };
 }
 

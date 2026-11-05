@@ -169,12 +169,12 @@ export function formatAgo(iso) {
   return `${years} year${years === 1 ? '' : 's'} ago`;
 }
 
-/** Splits "fabric-loader-0.20.1-26.3" or "1.20.1-forge-47.2.0" into loader and Minecraft version. */
+/** Splits "fabric-loader-0.20.1-26.3" into loader and Minecraft version. */
 export function versionInfo(versionId) {
   const id = String(versionId || '');
   const fabric = /^fabric-loader-([\d.]+)-(.+)$/i.exec(id);
   if (fabric) return { loader: 'Fabric', loaderVersion: fabric[1], minecraft: fabric[2], label: `Fabric ${fabric[2]}` };
-  const forge = /^(.+)-forge-([\d.]+)$/i.exec(id);
+  const forge = /^(.+?)-forge-(.+)$/i.exec(id);
   if (forge) return { loader: 'Forge', loaderVersion: forge[2], minecraft: forge[1], label: `Forge ${forge[1]}` };
   return { loader: 'Vanilla', loaderVersion: '', minecraft: id || '—', label: id || 'No version' };
 }

@@ -163,7 +163,9 @@ function updatesPanel(ctx) {
                 try {
                   const result = await ctx.api.invoke('updates:install');
                   ctx.toast(
-                    result?.opened ? 'Opened the release page – pick the installer there.' : 'Installer started. SallyLauncher closes now.',
+                    result?.opened
+                      ? 'This release has no in-place update – the release page opens instead.'
+                      : 'Update is being installed. SallyLauncher restarts, running games stay open.',
                     'success'
                   );
                 } catch (err) {
@@ -173,11 +175,13 @@ function updatesPanel(ctx) {
               }
             },
             icon('download', 17),
-            el('span', { text: info.asset ? 'Install update' : 'Open release page' })
+            el('span', { text: info.patch ? 'Install update' : 'Open release page' })
           ),
           el('span', {
             class: 'faint small',
-            text: info.asset ? `Downloads ${info.asset.name} and starts the installer.` : 'No .exe attached – the release page opens instead.'
+            text: info.patch
+              ? `Replaces only ${info.patch.name} (${Math.max(1, Math.round((info.patch.size || 0) / 1048576))} MB) – nothing is reinstalled.`
+              : 'No in-place update attached – the release page opens instead.'
           })
         )
       );
@@ -271,6 +275,18 @@ export function render(root, ctx) {
     width.disabled = !value;
     height.disabled = !value;
     save({ customResolution: value });
+  });
+
+  /* Escape hatch for machines whose GPU driver stalls while the launcher is
+     open: Chromium can run the whole window on the CPU instead. */
+  const gpuSwitch = switchToggle(settings.hardwareAcceleration !== false, async (value) => {
+    await save({ hardwareAcceleration: value });
+    ctx.toast(
+      value
+        ? 'Hardware acceleration on – restart SallyLauncher to apply.'
+        : 'Hardware acceleration off – restart SallyLauncher to apply.',
+      'info'
+    );
   });
 
   /* launch */
@@ -383,6 +399,11 @@ export function render(root, ctx) {
           width,
           el('span', { class: 'faint', text: '×' }),
           height
+        ),
+        row(
+          'Hardware acceleration',
+          'Turn this off if your graphics driver stalls while the launcher is open – the window then renders on the CPU. Restart to apply.',
+          gpuSwitch
         )
       ),
       panel(

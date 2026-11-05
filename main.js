@@ -16,6 +16,7 @@ const loaders = require('./src/main/loaders');
 const modrinth = require('./src/main/modrinth');
 const microsoft = require('./src/main/microsoft');
 const updates = require('./src/main/updates');
+const patch = require('./src/main/patch');
 const rpc = require('./src/main/rpc');
 const config = require('./src/main/config');
 
@@ -933,27 +934,19 @@ function registerIpc() {
   ipcMain.handle('updates:install', async () => {
     const info = updateState?.available ? updateState : await checkForUpdates();
     if (!info?.available) throw new Error('SallyLauncher is already on the newest release.');
-    if (!info.asset) {
+    /* Only the packed app.asar is replaced – no reinstall, settings stay. */
+    if (!patch.canPatch() || !info.patch) {
       await shell.openExternal(info.htmlUrl || updates.RELEASES_PAGE);
       return { opened: true };
     }
-    const targetDir = path.join(app.getPath('temp'), 'SallyLauncher-update');
     setGameState('preparing', { versionId: info.latestVersion });
     try {
-      const installer = await updates.downloadInstaller(info, {
-        targetDir,
+      const result = await patch.apply(info, {
         onProgress: (progress) => send('progress', progress)
       });
-      log(`Update ${info.latestVersion} downloaded to ${installer}`);
+      log(`Update ${info.latestVersion} ready – launcher restarts, running games stay open.`);
       setGameState('idle');
-      const failure = await shell.openPath(installer);
-      if (failure) throw new Error(failure);
-      log('Update installer started – SallyLauncher closes so the files can be replaced.');
-      setTimeout(() => {
-        mojang.stop();
-        app.quit();
-      }, 1500);
-      return { started: true, file: installer };
+      return { patched: true, ...result };
     } catch (err) {
       log(`Update failed: ${err.message}`);
       setGameState('idle', { error: err.message });
@@ -1197,6 +1190,29 @@ function createWindow() {
   });
 }
 
+/*
+ * Software rendering escape hatch.
+ *
+ * On a machine whose GPU driver freezes the desktop, the launcher is the wrong
+ * place to fight it: this switch turns Chromium's GPU compositing off. It has
+ * to be decided before `ready`, so the setting is read straight from the state
+ * file instead of through the Store.
+ */
+function prefersSoftwareRendering() {
+  try {
+    const file = path.join(app.getPath('userData'), 'sallylauncher.json');
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return saved?.settings?.hardwareAcceleration === false;
+  } catch {
+    return false;
+  }
+}
+
+if (prefersSoftwareRendering()) {
+  app.disableHardwareAcceleration();
+  log('Hardware acceleration disabled – running on the software renderer.');
+}
+
 app.whenReady().then(() => {
   protocol.handle('sally', async (request) => {
     try {
@@ -1236,12 +1252,11 @@ app.whenReady().then(() => {
   });
 });
 
+/* Closing the launcher never touches a running game – Minecraft keeps going. */
 app.on('window-all-closed', () => {
-  mojang.stop();
   app.quit();
 });
 
 app.on('before-quit', () => {
-  mojang.stop();
   rpc.stop({ silent: true }).catch(() => {});
 });

@@ -9,20 +9,13 @@ import {
   versionInfo,
   switchToggle
 } from '../ui.js';
-const cache = new Map();
 
-/* Modrinth facet for the instance's loader – vanilla instances search without one. */
+/** Modrinth facet of the profile: Forge mods are not Fabric mods. */
 function loaderFacet(profile) {
-  const loader = profile?.loader || 'fabric';
-  return loader === 'vanilla' ? '' : loader;
+  return String(profile?.loader || 'fabric').toLowerCase() === 'forge' ? 'forge' : 'fabric';
 }
 
-function loaderLabel(profile) {
-  const loader = profile?.loader || 'fabric';
-  if (loader === 'forge') return 'Forge mods only';
-  if (loader === 'vanilla') return 'no loader – pick Fabric or Forge for mods';
-  return 'Fabric mods only';
-}
+const cache = new Map();
 let lastRoot = null;
 let lastCtx = null;
 let follow = true;
@@ -509,7 +502,7 @@ function addModal(ctx, profile) {
       el('span', { class: 'instance-search' }, icon('search', 16), search),
       el('button', { class: 'btn primary small', type: 'button', onclick: () => runModSearch(ctx, profile) }, el('span', { text: state.loading ? 'Searching…' : 'Search' }))
     ),
-    el('div', { class: 'faint small', text: `${versionInfo(profile.versionId).label} · ${loaderLabel(profile)}` })
+    el('div', { class: 'faint small', text: `${versionInfo(profile.versionId).label} · Fabric mods only` })
   );
 
   const list = el('div', { class: 'mod-modal-list' });

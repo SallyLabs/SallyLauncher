@@ -64,6 +64,18 @@ async function main() {
     { cwd: installerDir, stdio: 'inherit', env: process.env }
   );
 
+  /* The in-place updater only replaces app.asar, so the packed app ships as its
+     own (few MB) release asset next to the setup. */
+  /* The wrapper build below reuses dist/win-unpacked as its output folder, so
+     the launcher asar is read from the finished payload copy. */
+  const asarSource = path.join(payloadDir, 'resources', 'app.asar');
+  if (fs.existsSync(asarSource)) {
+    const asarTarget = path.join(root, 'dist', 'app.asar');
+    await fsp.copyFile(asarSource, asarTarget);
+    const asarSize = (await fsp.stat(asarTarget)).size;
+    console.log(`[setup] Update-Payload: dist/app.asar (${(asarSize / 1048576).toFixed(1)} MB)`);
+  }
+
   const artifact = path.join(root, 'dist', `SallyLauncher-Setup-${version}.exe`);
   if (!fs.existsSync(artifact)) throw new Error('Setup-EXE wurde nicht erzeugt.');
   const size = (await fsp.stat(artifact)).size;
