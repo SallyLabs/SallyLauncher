@@ -1,0 +1,14 @@
+{
+  "name": "sallylauncher",
+  "productName": "SallyLauncher",
+  "version": "1.0.0",
+  "description": "SallyLauncher - a fast Minecraft launcher",
+  "main": "main.js",
+  "author": "SallyLauncher",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@xhayper/discord-rpc": "^1.5.1",
+    "adm-zip": "^0.6.1"
+  }
+}
