@@ -50,6 +50,13 @@ async function main() {
     fs.readFileSync(path.join(root, 'node_modules', 'electron', 'package.json'), 'utf8')
   ).version;
 
+  /* Reuse the Electron that is already installed instead of downloading it
+     again: GitHub hands out 504s often enough to fail a release. */
+  const electronDist = path.join(root, 'node_modules', 'electron', 'dist');
+  const distArgs = fs.existsSync(path.join(electronDist, 'electron.exe'))
+    ? [`--config.electronDist=${electronDist}`]
+    : [];
+
   console.log(`[setup] electron-builder (portable, Electron ${electronVersion})…`);
   execFileSync(
     process.execPath,
@@ -58,6 +65,7 @@ async function main() {
       '--win',
       'portable',
       `--config.electronVersion=${electronVersion}`,
+      ...distArgs,
       '--config',
       path.join(installerDir, 'electron-builder.yml')
     ],

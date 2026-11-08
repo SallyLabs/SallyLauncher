@@ -1,13 +1,8 @@
 import { el, icon, headAvatar, formatMb, formatPlaytime, formatAgo, versionInfo } from '../ui.js';
-import { createModelBuilder, createViewer, applySkinScale } from '../mc-model.js';
+import { createModelBuilder, createViewer, applySkinScale, activeSkinOf, skinOrDefault, prepareSkin } from '../mc-model.js';
 
 const refs = { viewer: null, rowTimes: new Map(), closeMenu: null };
 let rerender = () => {};
-
-function accountSkin(account) {
-  if (account?.skinUrl) return String(account.skinUrl).replace(/^http:\/\//, 'https://');
-  return `https://mc-heads.net/skin/${encodeURIComponent(account?.name || 'Steve')}`;
-}
 
 /** Stored stopwatch plus the time the currently running sessions already add. */
 function totalPlaytime(data) {
@@ -32,11 +27,16 @@ function banner(ctx) {
   const data = ctx.state.data;
   const account = data.activeAccount;
   const profile = data.activeProfile;
-  const url = accountSkin(account);
+  const skin = activeSkinOf(data.settings, account);
+  const url = skinOrDefault(skin.url);
   const unit = 5;
-  const builder = createModelBuilder({ url, unit, slim: account?.skinVariant === 'SLIM' });
+  const builder = createModelBuilder({ url, unit, slim: skin.slim });
   const model = builder.player();
   applySkinScale(model, url);
+  // a legacy 64x32 skin is rewritten to 64x64; rebuild once it is ready
+  prepareSkin(skin.url).then((ready) => {
+    if (ready !== skin.url && model.isConnected) rerender();
+  });
   const status = statusOf(data);
 
   refs.viewer?.stop();

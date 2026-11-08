@@ -1,7 +1,7 @@
 {
   "name": "sallylauncher-setup",
   "productName": "SallyLauncher Setup",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "SallyLauncher setup",
   "main": "main.js",
   "author": "SallyLabs",

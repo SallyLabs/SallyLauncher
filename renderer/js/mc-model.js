@@ -211,6 +211,77 @@ export function applySkinScale(root, url) {
   });
 }
 
+const readySkins = new Map();
+const pendingSkins = new Map();
+
+/** The prepared 64x64 URL for a skin, or the original one while it is loading. */
+export function skinOrDefault(url) {
+  return readySkins.get(url) || url;
+}
+
+function loadSkinImage(src) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+/**
+ * Old 64x32 skins have no outer layer and reuse the right arm and leg texture
+ * for the left limbs. Rewriting them into the 64x64 grid once keeps every view
+ * intact instead of losing the left arm, the left leg and all overlay layers.
+ */
+export function prepareSkin(url) {
+  if (!url) return Promise.resolve(url);
+  if (readySkins.has(url)) return Promise.resolve(readySkins.get(url));
+  if (pendingSkins.has(url)) return pendingSkins.get(url);
+
+  const task = (async () => {
+    const source = /^data:/i.test(url) ? url : await window.sally.invoke('skins:fetch', url);
+    const image = await loadSkinImage(source);
+    if (!image || image.naturalWidth !== 64 || image.naturalHeight !== 32) return url;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    context.imageSmoothingEnabled = false;
+    context.drawImage(image, 0, 0);
+    // each left limb copies its whole 16x16 block from the classic right side
+    context.drawImage(canvas, 0, 16, 16, 16, 16, 48, 16, 16);
+    context.drawImage(canvas, 40, 16, 16, 16, 32, 48, 16, 16);
+    return canvas.toDataURL('image/png');
+  })()
+    .catch(() => url)
+    .then((ready) => {
+      readySkins.set(url, ready);
+      pendingSkins.delete(url);
+      return ready;
+    });
+
+  pendingSkins.set(url, task);
+  return task;
+}
+
+/**
+ * The skin the launcher shows right now: the skin picked in the library, or
+ * else the one the account is wearing. `slim` decides the 3px arm layout, so
+ * every view that builds a model must use the same answer.
+ */
+export function activeSkinOf(settings, account) {
+  const library = Array.isArray(settings?.skinLibrary) ? settings.skinLibrary : [];
+  const picked = library.find((entry) => entry?.url && entry.id && entry.id === settings?.skinId);
+  if (picked) return { url: String(picked.url), slim: Boolean(picked.slim) };
+  return {
+    url: account?.skinUrl
+      ? String(account.skinUrl).replace(/^http:\/\//, 'https://')
+      : `https://mc-heads.net/skin/${encodeURIComponent(account?.name || 'Steve')}`,
+    slim: String(account?.skinVariant || '').toUpperCase() === 'SLIM'
+  };
+}
+
 /**
  * Idle turn plus pointer drag. Dragging takes over and stays manual afterwards.
  */

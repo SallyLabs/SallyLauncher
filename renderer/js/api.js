@@ -75,22 +75,22 @@ const demoState = {
   discord: { enabled: false, status: 'off', error: null, activity: null },
   update: {
     available: true,
-    currentVersion: '1.0.0',
-    latestVersion: '1.1.0',
-    name: 'SallyLauncher 1.1.0',
+    currentVersion: '1.1.2',
+    latestVersion: '1.1.2',
+    name: 'SallyLauncher 1.1.2',
     notes: 'Faster modpack installs, update checks and a Windows installer.',
     publishedAt: '2026-10-28T12:00:00Z',
     htmlUrl: 'https://github.com/SallyLabs/SallyLauncher/releases/latest',
     releasesUrl: 'https://github.com/SallyLabs/SallyLauncher/releases/latest',
     repo: 'SallyLabs/SallyLauncher',
-    asset: { name: 'SallyLauncher-Setup-1.1.0.exe', url: '#', size: 0 },
+    asset: { name: 'SallyLauncher-Setup-1.1.2.exe', url: '#', size: 0 },
     checkedAt: '2026-11-01T09:00:00Z',
     error: null
   },
   gameState: 'idle',
   instances: [],
   status: { running: false, versionId: null },
-  appVersion: '1.0.0',
+  appVersion: '1.1.2',
   platform: 'win32'
 };
 

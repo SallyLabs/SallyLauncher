@@ -1,5 +1,5 @@
 import { el, icon, logoMark } from '../ui.js';
-import { createModelBuilder, createViewer, applySkinScale } from '../mc-model.js';
+import { createModelBuilder, createViewer, applySkinScale, activeSkinOf, skinOrDefault, prepareSkin } from '../mc-model.js';
 
 /** Screen pixels per skin pixel. */
 const U = 9;
@@ -65,12 +65,6 @@ function equippedItem(ctx) {
     'starlight-halo': 'sally-halo'
   };
   return ITEMS.find((entry) => entry.id === (legacy[saved] || saved)) || ITEMS[0];
-}
-
-/** The skin the account is wearing right now, or the same skin by name. */
-function skinUrlFor(account) {
-  if (account?.skinUrl) return String(account.skinUrl).replace(/^http:\/\//, 'https://');
-  return `https://mc-heads.net/skin/${encodeURIComponent(account?.name || 'Steve')}`;
 }
 
 /* -------------------------------------------------------------- cosmetics */
@@ -187,15 +181,16 @@ function buildHalo() {
  * Scene with the model, either worn by the player or floating on its own.
  * `still` locks a three-quarter view, used for the small store thumbnails.
  */
-function buildScene(url, item, solo, still = false) {
-  const builder = createModelBuilder({ url, unit: U });
+function buildScene(rawSkin, item, solo, still = false) {
+  const skin = { ...rawSkin, url: skinOrDefault(rawSkin.url) };
+  const builder = createModelBuilder({ url: skin.url, unit: U, slim: skin.slim });
   const model = builder.player({ head: item.id === 'sally-crown' ? [buildCrown(builder)] : [] });
 
   if (item.id === 'sally-cape') model.append(buildCape(builder));
   if (item.id === 'sally-wings') model.append(...buildWings(builder));
   if (item.id === 'sally-halo') model.append(buildHalo());
 
-  applySkinScale(model, url);
+  applySkinScale(model, skin.url);
 
   let body = model;
   if (solo) {
@@ -222,7 +217,7 @@ function buildScene(url, item, solo, still = false) {
 
 /* ------------------------------------------------------------------ views */
 
-function card(item, current) {
+function card(item, current, skin) {
   const equipped = current.id === item.id;
   return el(
     'button',
@@ -238,7 +233,7 @@ function card(item, current) {
     el(
       'span',
       { class: 'store-art' },
-      buildScene(skinUrlFor(lastCtx.state.data.activeAccount), item, true, true),
+      buildScene(skin, item, true, true),
       equipped ? el('span', { class: 'store-badge', text: 'Equipped' }) : null
     ),
     el(
@@ -251,7 +246,7 @@ function card(item, current) {
   );
 }
 
-function renderGrid(root, ctx, equipped) {
+function renderGrid(root, ctx, equipped, skin) {
   root.append(
     el(
       'div',
@@ -268,7 +263,7 @@ function renderGrid(root, ctx, equipped) {
         el('span', { class: 'chip' }, icon('sparkles', 16), el('span', { text: `${ITEMS.length} items` }))
       )
     ),
-    el('div', { class: 'store-grid' }, ...ITEMS.map((item) => card(item, equipped))),
+    el('div', { class: 'store-grid' }, ...ITEMS.map((item) => card(item, equipped, skin))),
     el('p', {
       class: 'store-note',
       text: 'Preview only: cosmetics are rendered in the launcher and are not applied in game.'
@@ -277,9 +272,9 @@ function renderGrid(root, ctx, equipped) {
 }
 
 function renderDetail(root, ctx, item, equipped) {
-  const url = skinUrlFor(ctx.state.data.activeAccount);
+  const skin = activeSkinOf(ctx.state.data.settings, ctx.state.data.activeAccount);
   const isEquipped = equipped.id === item.id;
-  const stage = el('div', { class: 'preview-stage' }, buildScene(url, item, !view.onPlayer));
+  const stage = el('div', { class: 'preview-stage' }, buildScene(skin, item, !view.onPlayer));
   const model = stage.querySelector('.mc-model');
 
   viewer = createViewer(model);
@@ -381,12 +376,17 @@ export function render(root, ctx) {
   root.innerHTML = '';
 
   const equipped = equippedItem(ctx);
+  const skin = activeSkinOf(ctx.state.data.settings, ctx.state.data.activeAccount);
+  // a legacy 64x32 skin is rewritten to 64x64; redraw once it is ready
+  prepareSkin(skin.url).then((ready) => {
+    if (ready !== skin.url && root.isConnected) redraw();
+  });
   if (view.mode === 'detail') {
     const item = ITEMS.find((entry) => entry.id === view.id) || equipped;
     renderDetail(root, ctx, item, equipped);
     return;
   }
-  renderGrid(root, ctx, equipped);
+  renderGrid(root, ctx, equipped, skin);
 }
 
 export function onState(root, ctx) {

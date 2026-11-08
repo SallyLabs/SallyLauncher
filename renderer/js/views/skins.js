@@ -1,5 +1,5 @@
 import { el, icon } from '../ui.js';
-import { createModelBuilder, createViewer, applySkinScale, skinInfoFor } from '../mc-model.js';
+import { createModelBuilder, createViewer, applySkinScale, skinInfoFor, skinOrDefault, prepareSkin } from '../mc-model.js';
 
 /** Big preview and the small library thumbnails use different pixel sizes. */
 const PREVIEW_UNIT = 9;
@@ -215,7 +215,7 @@ export function render(root, ctx) {
   const settings = ctx.state.data.settings;
   const account = ctx.state.data.activeAccount;
   const library = libraryOf(settings);
-  const entries = [
+  const rawEntries = [
     {
       id: 'account',
       name: account?.name || 'Steve',
@@ -225,6 +225,8 @@ export function render(root, ctx) {
     },
     ...library
   ];
+  // legacy 64x32 skins are rewritten to the 64x64 grid before they are drawn
+  const entries = rawEntries.map((entry) => ({ ...entry, url: skinOrDefault(entry.url) }));
   const activeId = settings.skinId || 'account';
   const active = entries.find((entry) => entry.id === activeId) || entries[0];
 
@@ -722,6 +724,10 @@ export function render(root, ctx) {
     dropZone,
     fileInput
   );
+
+  Promise.all(rawEntries.map((entry) => prepareSkin(entry.url))).then((urls) => {
+    if (urls.some((url, index) => url !== rawEntries[index].url) && root.isConnected) ctx.refreshView();
+  });
 
   hideWornCopies();
 }

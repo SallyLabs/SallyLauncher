@@ -1,7 +1,7 @@
 {
   "name": "sallylauncher",
   "productName": "SallyLauncher",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "SallyLauncher - a fast Minecraft launcher",
   "main": "main.js",
   "author": "SallyLauncher",
@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
+    "pack": "electron-builder --dir --config.electronDist=node_modules/electron/dist",
     "dist": "npm run pack && node scripts/build-installer.js",
     "splash": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-splash.ps1"
   },
