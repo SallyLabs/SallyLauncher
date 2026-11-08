@@ -165,8 +165,10 @@ function updatesPanel(ctx) {
                   ctx.toast(
                     result?.opened
                       ? 'This release has no in-place update – the release page opens instead.'
-                      : 'Update is being installed. SallyLauncher restarts, running games stay open.',
-                    'success'
+                      : result?.installer
+                        ? 'Setup downloaded – the installer starts and updates SallyLauncher.'
+                        : 'Update is being installed. SallyLauncher restarts, running games stay open.',
+                    result?.opened ? 'info' : 'success'
                   );
                 } catch (err) {
                   button.disabled = false;
@@ -175,13 +177,15 @@ function updatesPanel(ctx) {
               }
             },
             icon('download', 17),
-            el('span', { text: info.patch ? 'Install update' : 'Open release page' })
+            el('span', { text: info.patch ? 'Install update' : info.asset ? 'Download installer' : 'Open release page' })
           ),
           el('span', {
             class: 'faint small',
             text: info.patch
               ? `Replaces only ${info.patch.name} (${Math.max(1, Math.round((info.patch.size || 0) / 1048576))} MB) – nothing is reinstalled.`
-              : 'No in-place update attached – the release page opens instead.'
+              : info.asset
+                ? 'No in-place update attached – the full setup is downloaded and started instead.'
+                : 'No download attached – the release page opens instead.'
           })
         )
       );

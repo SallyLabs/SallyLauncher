@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Reads the version from package.json and checks whether that release is already complete.
+      - name: Read version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          tag="v$version"
+          complete=false
+          if gh release view "$tag" >/dev/null 2>&1; then
+            assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+            if echo "$assets" | grep -qx "app.asar" &&
+               echo "$assets" | grep -qx "SallyLauncher-Setup-$version.exe"; then
+              complete=true
+            fi
+          fi
+          echo "complete=$complete" >> "$GITHUB_OUTPUT"
+          echo "Release v$version complete: $complete"
+
+      - name: Install dependencies
+        if: steps.version.outputs.complete != 'true'
+        run: npm ci
+
+      - name: Build setup
+        if: steps.version.outputs.complete != 'true'
+        run: npm run dist
+
+      # Creates the release when the version was bumped and adds whatever asset is missing:
+      # the setup exe for a fresh install, app.asar for the in-place updater.
+      - name: Publish release
+        if: steps.version.outputs.complete != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag exists – adding missing assets."
+          else
+            gh release create "$tag" \
+              --title "SallyLauncher $VERSION" \
+              --generate-notes \
+              --target "$GITHUB_SHA"
+          fi
+          for file in "dist/SallyLauncher-Setup-$VERSION.exe" "dist/app.asar"; do
+            name=$(basename "$file")
+            if [ ! -f "$file" ]; then
+              echo "::error::$file was not built."
+              exit 1
+            fi
+            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx "$name"; then
+              echo "$name already attached."
+            else
+              gh release upload "$tag" "$file"
+            fi
+          done
+          gh release view "$tag" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"

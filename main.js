@@ -936,6 +936,26 @@ function registerIpc() {
     if (!info?.available) throw new Error('SallyLauncher is already on the newest release.');
     /* Only the packed app.asar is replaced – no reinstall, settings stay. */
     if (!patch.canPatch() || !info.patch) {
+      /* No app.asar attached: fall back to the full setup instead of only
+         opening the browser – that is what makes an update possible at all. */
+      if (info.asset?.url) {
+        setGameState('preparing', { versionId: info.latestVersion });
+        try {
+          const file = await updates.downloadInstaller(info, {
+            targetDir: path.join(app.getPath('temp'), 'SallyLauncher-update'),
+            onProgress: (progress) => send('progress', progress)
+          });
+          setGameState('idle');
+          log(`Setup ${info.asset.name} downloaded – starting the installer.`);
+          const failure = await shell.openPath(file);
+          if (failure) throw new Error(failure);
+          return { installer: file };
+        } catch (err) {
+          setGameState('idle', { error: err.message });
+          log(`Update failed: ${err.message}`);
+          throw err;
+        }
+      }
       await shell.openExternal(info.htmlUrl || updates.RELEASES_PAGE);
       return { opened: true };
     }

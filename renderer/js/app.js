@@ -254,6 +254,7 @@ async function installUpdate() {
   try {
     const result = await api.invoke('updates:install');
     if (result?.opened) toast('This release has no in-place update – the release page opens instead.', 'info');
+    else if (result?.installer) toast('Setup downloaded – the installer starts and updates SallyLauncher.', 'success');
     else toast('Update is being installed. SallyLauncher restarts, running games stay open.', 'success');
   } catch (err) {
     toast(err.message, 'error');

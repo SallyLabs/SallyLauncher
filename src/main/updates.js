@@ -22,6 +22,34 @@ const REPO = 'SallyLabs/SallyLauncher';
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=10`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
 const USER_AGENT = 'SallyLauncher-Updater';
+/* GitHub answers 502/503/504 often enough that one request is not enough. */
+const RETRY_DELAYS = [800, 2000, 4000];
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchWithRetry(url, { headers = {}, timeoutMs = 15000 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { headers, signal: controller.signal, redirect: 'follow' });
+      if (!RETRYABLE_STATUS.has(res.status)) return res;
+      lastError = new Error(`GitHub is currently unavailable (HTTP ${res.status}).`);
+      await res.arrayBuffer().catch(() => {});
+    } catch (error) {
+      lastError =
+        error?.name === 'AbortError'
+          ? new Error('GitHub did not answer in time.')
+          : new Error(`Could not reach GitHub: ${error?.message || error}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt < RETRY_DELAYS.length) await sleep(RETRY_DELAYS[attempt]);
+  }
+  throw lastError || new Error('Could not reach GitHub.');
+}
 
 /** "v1.2.3" / "1.2.3-beta" -> [1,2,3]; a tag without a number ("v-b.001") -> null */
 function versionParts(value) {
@@ -92,7 +120,7 @@ function releaseHeaders() {
 }
 
 async function fetchRelease() {
-  const res = await fetch(RELEASES_API, { headers: releaseHeaders() });
+  const res = await fetchWithRetry(RELEASES_API, { headers: releaseHeaders() });
   if (res.status === 404) {
     return {
       error:
@@ -150,7 +178,7 @@ async function check({ currentVersion }) {
       available: false,
       currentVersion,
       latestVersion: currentVersion,
-      error: `Could not reach GitHub: ${err.message}`,
+      error: /GitHub/.test(String(err?.message)) ? err.message : `Could not reach GitHub: ${err.message}`,
       checkedAt: new Date().toISOString(),
       repo: REPO,
       releasesUrl: RELEASES_PAGE
@@ -165,8 +193,12 @@ async function downloadInstaller(update, { targetDir, onProgress = () => {} } = 
   }
   await fsp.mkdir(targetDir, { recursive: true });
   const dest = path.join(targetDir, update.asset.name.replace(/[^\w.-]+/g, '-'));
-  const res = await fetch(update.asset.url, { headers: { 'User-Agent': USER_AGENT } });
-  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}).`);
+  const res = await fetchWithRetry(update.asset.url, { headers: { 'User-Agent': USER_AGENT }, timeoutMs: 30000 });
+  if (!res.ok) {
+    throw new Error(
+      `Download failed (HTTP ${res.status}). Try again later or install the setup file from the release page manually.`
+    );
+  }
   const total = Number(res.headers.get('content-length')) || update.asset.size || 0;
   let done = 0;
   let last = 0;
