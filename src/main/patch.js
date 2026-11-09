@@ -13,6 +13,7 @@
  * and keeps going.
  */
 
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -66,26 +67,43 @@ async function scheduleSwap({ source, target, exePath, pid }) {
   const lines = [
     '@echo off',
     'setlocal',
+    'set "TRIES=0"',
     `set "PID=${pid}"`,
     `set "NEW=${source}"`,
     `set "TARGET=${target}"`,
     `set "EXE=${exePath}"`,
     ':wait',
-    'timeout /t 1 /nobreak >nul',
-    'tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul && goto wait',
+    'ping -n 2 127.0.0.1 >nul',
+    'tasklist /FI "PID eq %PID%" 2>nul | findstr /C:"%PID%" >nul && goto wait',
+    ':swap',
     'attrib -R "%TARGET%" >nul 2>&1',
     'move /Y "%NEW%" "%TARGET%" >nul 2>&1',
-    'if errorlevel 1 goto retry',
-    'goto start',
-    ':retry',
-    'timeout /t 2 /nobreak >nul',
-    'move /Y "%NEW%" "%TARGET%" >nul 2>&1',
+    'if not errorlevel 1 goto start',
+    'set /a TRIES+=1',
+    'if %TRIES% GEQ 20 goto start',
+    'ping -n 2 127.0.0.1 >nul',
+    'goto swap',
     ':start',
     'start "" "%EXE%"',
     'del "%~f0" >nul 2>&1'
   ];
   await fsp.writeFile(script, `${lines.join('\r\n')}\r\n`, 'utf8');
   return script;
+}
+
+/**
+ * Starts the swap script detached so it keeps running after this process has
+ * exited. Without this call the script is only written to disk and nothing ever
+ * replaces the asar – the launcher quits and the update silently does nothing.
+ */
+function launchSwap(script) {
+  const child = spawn(process.env.COMSPEC || 'cmd.exe', ['/d', '/c', script], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true
+  });
+  child.unref();
+  return child;
 }
 
 /**
@@ -102,13 +120,14 @@ async function apply(update, { onProgress = () => {} } = {}) {
   await fsp.rm(staging, { force: true });
 
   const written = await download(asset.url, staging, { onProgress, size: asset.size });
-  if (written < 64 * 1024) {
+  if (written < 64 * 1024 || (asset.size && written < asset.size)) {
     await fsp.rm(staging, { force: true });
     throw new Error('The downloaded update looks incomplete – please try again.');
   }
 
   const exePath = app.getPath('exe');
-  await scheduleSwap({ source: staging, target, exePath, pid: process.pid });
+  const script = await scheduleSwap({ source: staging, target, exePath, pid: process.pid });
+  launchSwap(script);
 
   onProgress({ label: 'SallyLauncher update', done: written, total: written });
   /* The swap script takes over once this process has exited. */

@@ -15,6 +15,8 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
+    # GH_TOKEN prefers the RELEASE_TOKEN secret: organizations that enforce
+    # read-only workflow permissions block the default GITHUB_TOKEN.
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +30,7 @@ jobs:
         id: version
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
@@ -59,7 +61,7 @@ jobs:
         if: steps.version.outputs.complete != 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
