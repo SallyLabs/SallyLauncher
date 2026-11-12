@@ -664,8 +664,7 @@ export function render(root, ctx) {
       el(
         'div',
         {},
-        el('h1', { class: 'page-title', text: 'Skins' }),
-        el('div', { class: 'page-sub', text: 'Pick one of your skins and spin the model around.' })
+        el('h1', { class: 'page-title', text: 'Skins' })
       ),
       el(
         'div',

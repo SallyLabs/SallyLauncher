@@ -12,10 +12,14 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const AdmZip = require('adm-zip');
+const clientmod = require('./clientmod');
 
 const BUNDLED_MODS_DIR = path.join(__dirname, '..', '..', 'assets', 'mods');
 const FABRIC_META = 'https://meta.fabricmc.net/v2';
 const MODRINTH_API = 'https://api.modrinth.com/v2';
+
+/* jar mirrored from sallyclient.stream, set by prepareClientMods */
+let externalClientJar = '';
 
 async function fetchJson(url) {
   const headers = { 'User-Agent': 'SallyLauncher/1.0 (sallylauncher)' };
@@ -134,33 +138,41 @@ function tokenMatchesMinecraft(token, version) {
   return version === target || version.startsWith(`${target}.`) || version.startsWith(`${target}-`);
 }
 
+function readModInfo(full, file) {
+  const info = { file, path: full, id: file, name: file.replace(/.jar$/i, ''), version: '', minecraft: '*', requiresFabricApi: false };
+  try {
+    const zip = new AdmZip(full);
+    const entry = zip.getEntry('fabric.mod.json');
+    if (entry) {
+      const manifest = JSON.parse(zip.readAsText(entry));
+      info.id = manifest.id || info.id;
+      info.name = manifest.name || info.name;
+      info.version = manifest.version || '';
+      info.minecraft = manifest.depends?.minecraft || '*';
+      info.requiresFabricApi = Boolean(manifest.depends?.['fabric-api']);
+      info.description = manifest.description || '';
+    }
+  } catch (err) {
+    info.error = err.message;
+  }
+  return info;
+}
+
 function readBundledMods() {
   const mods = [];
   let entries = [];
   try {
     entries = fs.readdirSync(BUNDLED_MODS_DIR).filter((name) => name.toLowerCase().endsWith('.jar'));
   } catch {
-    return mods;
+    /* the shipped folder is optional – a mirrored jar still counts */
   }
-  for (const file of entries) {
-    const full = path.join(BUNDLED_MODS_DIR, file);
-    const info = { file, path: full, id: file, name: file.replace(/\.jar$/i, ''), version: '', minecraft: '*', requiresFabricApi: false };
-    try {
-      const zip = new AdmZip(full);
-      const entry = zip.getEntry('fabric.mod.json');
-      if (entry) {
-        const manifest = JSON.parse(zip.readAsText(entry));
-        info.id = manifest.id || info.id;
-        info.name = manifest.name || info.name;
-        info.version = manifest.version || '';
-        info.minecraft = manifest.depends?.minecraft || '*';
-        info.requiresFabricApi = Boolean(manifest.depends?.['fabric-api']);
-        info.description = manifest.description || '';
-      }
-    } catch (err) {
-      info.error = err.message;
-    }
-    mods.push(info);
+  const jars = entries.map((name) => path.join(BUNDLED_MODS_DIR, name));
+  if (externalClientJar && fs.existsSync(externalClientJar)) jars.push(externalClientJar);
+  for (const full of jars) {
+    const file = path.basename(full);
+    /* the mirrored jar replaces the one shipped with the launcher */
+    if (externalClientJar && full !== externalClientJar && /^sallyclient-.*.jar$/i.test(file)) continue;
+    mods.push(readModInfo(full, file));
   }
   return mods;
 }
@@ -240,8 +252,45 @@ async function installBundledMods(gameDir, mcVersion, { onLog = () => {} } = {})
     }
     onLog(`${mod.name} ${mod.version} needs Minecraft ${mod.minecraft} – kept in mods-disabled for ${mcVersion}`);
   }
+  /* an older client jar left behind would be a duplicate mod id for Fabric */
+  if (externalClientJar) {
+    const current = path.basename(externalClientJar);
+    for (const name of await fsp.readdir(modsDir).catch(() => [])) {
+      if (name === current || !/^sallyclient-.*.jar$/i.test(name)) continue;
+      await fsp.rm(path.join(modsDir, name), { force: true }).catch(() => {});
+      onLog(`Removed outdated client jar ${name}`);
+    }
+    for (const name of await fsp.readdir(parkedDir).catch(() => [])) {
+      if (!/^sallyclient-.*.jar$/i.test(name)) continue;
+      await fsp.rm(path.join(parkedDir, name), { force: true }).catch(() => {});
+    }
+  }
   return { modsDir, injected, skipped };
 }
+/**
+ * Puts the mirrored client jar into one profile without preparing a launch.
+ * Used at startup for every Fabric profile the current build supports.
+ */
+async function syncClientMod({ gameDir, versionId, onLog = () => {} } = {}) {
+  if (!gameDir || !versionId) return null;
+  const mcVersion = baseMinecraftVersion(versionId);
+  const build = await clientmod.ensure({ onLog });
+  if (!build || !build.path || !fs.existsSync(build.path)) return null;
+  const file = path.basename(build.path);
+  const info = readModInfo(build.path, file);
+  if (!matchesMinecraft(info.minecraft, mcVersion)) return null;
+  const modsDir = path.join(gameDir, 'mods');
+  await fsp.mkdir(modsDir, { recursive: true });
+  const changed = await copyIfNeeded(build.path, path.join(modsDir, file));
+  externalClientJar = build.path;
+  for (const name of await fsp.readdir(modsDir).catch(() => [])) {
+    if (name === file || !/^sallyclient-.*.jar$/i.test(name)) continue;
+    await fsp.rm(path.join(modsDir, name), { force: true }).catch(() => {});
+    onLog('Removed outdated client jar ' + name);
+  }
+  return { file, version: build.version, updated: changed, modsDir };
+}
+
 
 /** Windows refuses to rename onto an existing file, so parked copies are replaced. */
 async function moveFile(source, target) {
@@ -447,6 +496,18 @@ async function prepareClientMods({ gameDir, versionId, enabled, runtimeDir = '',
     return report;
   }
 
+  /* newest client build from sallyclient.stream – never blocks a launch */
+  try {
+    const build = await clientmod.ensure({ onLog });
+    if (build && build.path) {
+      externalClientJar = build.path;
+      report.clientBuild = { version: build.version, file: build.file, updated: Boolean(build.downloaded) };
+      if (build.downloaded) onLog('SallyClient ' + build.version + ' installed from sallyclient.stream');
+    }
+  } catch (err) {
+    onLog('SallyClient update skipped: ' + err.message);
+  }
+
   try {
     report.fabricVersionId = isLoaderVersion(versionId)
       ? versionId
@@ -474,8 +535,16 @@ async function prepareClientMods({ gameDir, versionId, enabled, runtimeDir = '',
   return report;
 }
 
+/** Points the injector at the jar mirrored from sallyclient.stream. */
+function useClientJar(file) {
+  externalClientJar = file ? String(file) : '';
+  return externalClientJar;
+}
+
 module.exports = {
   prepareClientMods,
+  syncClientMod,
+  useClientJar,
   clientModReport,
   ensureFabricVersion,
   installBundledMods,

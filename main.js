@@ -17,11 +17,33 @@ const modrinth = require('./src/main/modrinth');
 const microsoft = require('./src/main/microsoft');
 const updates = require('./src/main/updates');
 const patch = require('./src/main/patch');
+const clientmod = require('./src/main/clientmod');
+const servers = require('./src/main/servers');
+const cosmetics = require('./src/main/cosmetics');
 const rpc = require('./src/main/rpc');
 const config = require('./src/main/config');
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
 const store = new Store();
+
+/* A white window or a frozen desktop must never survive a restart: the marker
+   written on a GPU/renderer problem turns hardware acceleration and acrylic off
+   for the next start. */
+const safeStartFile = () => path.join(app.getPath('userData'), 'safe-start.json');
+let safeStartMode = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(safeStartFile(), 'utf8')).active === true;
+  } catch {
+    return false;
+  }
+})();
+function writeSafeStart(active, reason = '') {
+  try {
+    fs.writeFileSync(safeStartFile(), JSON.stringify({ active, reason, at: new Date().toISOString() }, null, 2));
+  } catch {
+    /* a missing marker only costs the fallback, never the launch */
+  }
+}
 
 let mainWindow = null;
 let updateState = null;
@@ -315,8 +337,17 @@ async function uploadSkin(variant, buffer, accessToken) {
 function registerIpc() {
   ipcMain.handle('state:get', () => snapshot());
 
+  /* Frosted glass can be switched off – Windows then paints no acrylic behind us. */
+  ipcMain.handle('appearance:glass', (_e, on) => {
+    setGlass(on !== false);
+    return { material: on === false ? 'none' : 'acrylic' };
+  });
+
   ipcMain.handle('settings:update', (_e, patch) => {
     const settings = store.updateSettings(patch || {});
+    if (patch && 'glass' in patch) {
+      setGlass(settings.glass !== false);
+    }
     javaCache = { at: 0, key: '', info: null };
     if (patch && 'discordRpc' in patch) {
       syncDiscord().catch(() => {});
@@ -780,6 +811,34 @@ function registerIpc() {
     return { name: account.name, variant, skinUrl: skin?.url || null };
   });
 
+  /* ------------------------------------------------------------- servers */
+
+  ipcMain.handle('servers:list', async (_e, options = {}) => servers.list(options || {}));
+
+  ipcMain.handle('cosmetics:list', (_e, payload = {}) => {
+    const profile = (payload?.profileId ? store.getProfile(payload.profileId) : null) || store.getActiveProfile();
+    return cosmetics.list({ gameDir: profile?.gameDir || '' });
+  });
+
+  /** Writes one cosmetic into the profile's SallyClient config. */
+  ipcMain.handle('cosmetics:toggle', (_e, payload = {}) => {
+    const profile = (payload?.profileId ? store.getProfile(payload.profileId) : null) || store.getActiveProfile();
+    if (!profile?.gameDir) throw new Error('Create a profile first.');
+    return cosmetics.toggle({ gameDir: profile.gameDir, id: payload?.id });
+  });
+
+  /** Makes a server from the list the target of the profile's next launch. */
+  ipcMain.handle('servers:apply', (_e, payload = {}) => {
+    const address = String(payload?.address || '').trim();
+    if (!address) throw new Error('That server has no address.');
+    const profile = (payload?.profileId ? store.getProfile(payload.profileId) : null) || store.getActiveProfile();
+    if (!profile) throw new Error('Create a profile first.');
+    store.updateProfile(profile.id, { serverAddress: address });
+    store.updateSettings({ autoConnect: true });
+    send('state', snapshot());
+    return { profileId: profile.id, serverAddress: address, profile: store.getProfile(profile.id) };
+  });
+
   ipcMain.handle('client:info', () => {
     const profile = store.getActiveProfile();
     const settings = store.effectiveSettings(profile);
@@ -1163,6 +1222,56 @@ function startStats() {
 
 /* ---------------------------------------------------------------- window */
 
+/* A driver can composite acrylic as a blank frame without crashing. Sampling the
+   first glass frame catches that and drops back to the solid window. */
+function verifyFirstGlassFrame() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const timer = new Promise((resolve) => setTimeout(() => resolve(null), 4000));
+  Promise.race([mainWindow.webContents.capturePage(), timer])
+    .then((image) => {
+      if (!image || !image.getSize) return;
+      const { width, height } = image.getSize();
+      if (!width || !height) return;
+      const bitmap = image.getBitmap();
+      let sampled = 0;
+      let white = 0;
+      for (let y = 4; y < height; y += 24) {
+        for (let x = 4; x < width; x += 24) {
+          const i = (y * width + x) * 4;
+          if (i + 3 > bitmap.length) continue;
+          sampled += 1;
+          if (bitmap[i] > 244 && bitmap[i + 1] > 244 && bitmap[i + 2] > 244) white += 1;
+        }
+      }
+      const ratio = sampled ? white / sampled : 0;
+      if (process.env.SALLY_DEBUG) log('Glass frame sampled: ' + Math.round(ratio * 100) + '% white');
+      /* a light theme is legitimately almost white – only dark themes prove a blank frame */
+      const darkTheme = (store.get().settings?.theme || 'midnight') !== 'light';
+      if (darkTheme && ratio > 0.97) {
+        log('Glass frame came back blank (' + Math.round(ratio * 100) + '%) – using the solid window.');
+        writeSafeStart(true, 'blank-glass-frame');
+        setGlass(false);
+      }
+    })
+    .catch((err) => log('Glass frame check skipped: ' + (err?.message || err)));
+}
+
+function setGlass(on) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (on && safeStartMode) return;
+  try {
+    mainWindow.setBackgroundMaterial(on ? 'acrylic' : 'none');
+    mainWindow.setBackgroundColor(on ? '#00000000' : '#16151d');
+  } catch (err) {
+    log('Glass not available: ' + err.message);
+    try {
+      mainWindow.setBackgroundColor('#16151d');
+    } catch {
+      /* nothing left to try */
+    }
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -1171,7 +1280,10 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     show: false,
-    backgroundColor: '#141319',
+    /* solid first: acrylic is switched on after the first paint, so a driver
+       that cannot composite it can never leave a blank window */
+    backgroundColor: '#16151d',
+    roundedCorners: true,
     title: 'SallyLauncher',
     icon: path.join(RENDERER_DIR, 'assets', 'logo.png'),
     webPreferences: {
@@ -1182,7 +1294,26 @@ function createWindow() {
     }
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  const glassWanted = !safeStartMode && store.get().settings?.glass !== false;
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    if (glassWanted) {
+      setTimeout(() => {
+        setGlass(true);
+        setTimeout(verifyFirstGlassFrame, 2600);
+      }, 1400);
+    }
+  });
+
+  /* If the first paint never reports back, show the window anyway. */
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      log('Window did not become ready in time – showing it now.');
+      writeSafeStart(true, 'ready-to-show timeout');
+      mainWindow.show();
+    }
+  }, 8000).unref?.();
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -1200,6 +1331,28 @@ function createWindow() {
   });
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
     log(`Page failed to load (${code}): ${description} – ${url}`);
+  });
+
+  let recoveries = 0;
+  const recover = (reason) => {
+    log('Recovering renderer: ' + reason);
+    writeSafeStart(true, reason);
+    if (recoveries >= 2) return;
+    recoveries += 1;
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }, 600);
+  };
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    recover('render-process-gone:' + (details?.reason || 'unknown'));
+  });
+  mainWindow.on('unresponsive', () => {
+    log('Window unresponsive.');
+    writeSafeStart(true, 'unresponsive');
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    writeSafeStart(false);
   });
 
   mainWindow.loadURL('sally://app/index.html');
@@ -1228,9 +1381,26 @@ function prefersSoftwareRendering() {
   }
 }
 
-if (prefersSoftwareRendering()) {
+if (prefersSoftwareRendering() || safeStartMode) {
   app.disableHardwareAcceleration();
-  log('Hardware acceleration disabled – running on the software renderer.');
+  log(
+    safeStartMode
+      ? 'Safe start: last run failed – hardware acceleration and glass are off.'
+      : 'Hardware acceleration disabled – running on the software renderer.'
+  );
+}
+
+/* One launcher at a time – a second start focuses the window that is open. */
+const gotSingleInstance = app.requestSingleInstanceLock();
+if (!gotSingleInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 app.whenReady().then(() => {
@@ -1266,6 +1436,39 @@ app.whenReady().then(() => {
   syncDiscord().catch(() => {});
   setTimeout(() => checkForUpdates().catch(() => {}), 2500);
   setInterval(() => checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000).unref?.();
+
+  /* the SallyClient mod follows sallyclient.stream, not the launcher release */
+  setTimeout(async () => {
+    try {
+      const build = await clientmod.ensure({ onLog: (line) => log(line) });
+      if (build && build.path) fabric.useClientJar(build.path);
+      /* every Fabric profile that runs this client build gets the jar */
+      let installed = 0;
+      for (const profile of store.get().profiles || []) {
+        if (!profile || !profile.versionId || !profile.gameDir) continue;
+        if (loaders.normalizeLoader(profile.loader) !== 'fabric') continue;
+        try {
+          const result = await fabric.syncClientMod({
+            gameDir: profile.gameDir,
+            versionId: profile.versionId,
+            onLog: (line) => log(line)
+          });
+          if (result) {
+            installed += 1;
+            if (result.updated) log('SallyClient ' + result.version + ' added to ' + profile.name);
+          }
+        } catch (err) {
+          log('SallyClient for ' + profile.name + ' skipped: ' + err.message);
+        }
+      }
+      if (installed) {
+        log('SallyClient ' + build.version + ' is in ' + installed + ' Fabric profile(s)');
+        send('state', snapshot());
+      }
+    } catch (err) {
+      log('SallyClient update skipped: ' + err.message);
+    }
+  }, 4000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

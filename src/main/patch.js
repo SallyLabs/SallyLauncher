@@ -22,7 +22,7 @@ const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { app } = require('electron');
 
-const USER_AGENT = 'SallyLauncher-Updater';
+const { assetRequest } = require('./updates');
 
 /** `<install>/resources` – the folder that holds app.asar and the payload. */
 function resourcesDir() {
@@ -39,8 +39,9 @@ function canPatch() {
   return app.isPackaged && Boolean(packagedAsar());
 }
 
-async function download(url, dest, { onProgress = () => {}, size = 0 } = {}) {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+async function download(asset, dest, { onProgress = () => {}, size = 0 } = {}) {
+  const request = assetRequest(asset);
+  const res = await fetch(request.url, { headers: request.headers });
   if (!res.ok) throw new Error(`Download failed (HTTP ${res.status}).`);
   const total = Number(res.headers.get('content-length')) || size || 0;
   let done = 0;
@@ -119,7 +120,7 @@ async function apply(update, { onProgress = () => {} } = {}) {
   const staging = `${target}.new`;
   await fsp.rm(staging, { force: true });
 
-  const written = await download(asset.url, staging, { onProgress, size: asset.size });
+  const written = await download(asset, staging, { onProgress, size: asset.size });
   if (written < 64 * 1024 || (asset.size && written < asset.size)) {
     await fsp.rm(staging, { force: true });
     throw new Error('The downloaded update looks incomplete – please try again.');

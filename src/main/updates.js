@@ -79,7 +79,12 @@ function pickAsset(release) {
   const preferred =
     windows.find((asset) => /setup|installer|sallylauncher.*\.exe$/i.test(asset.name)) || windows[0] || null;
   if (!preferred) return null;
-  return { name: preferred.name, url: preferred.browser_download_url, size: preferred.size || 0 };
+  return {
+    name: preferred.name,
+    url: preferred.browser_download_url,
+    apiUrl: preferred.url || null,
+    size: preferred.size || 0
+  };
 }
 
 /**
@@ -90,7 +95,7 @@ function pickPatchAsset(release) {
   const assets = release?.assets || [];
   const asar = assets.find((asset) => /\.asar$/i.test(asset.name || ''));
   if (!asar) return null;
-  return { name: asar.name, url: asar.browser_download_url, size: asar.size || 0 };
+  return { name: asar.name, url: asar.browser_download_url, apiUrl: asar.url || null, size: asar.size || 0 };
 }
 
 function normalize(release, currentVersion) {
@@ -112,11 +117,35 @@ function normalize(release, currentVersion) {
   };
 }
 
+function authToken() {
+  return String(process.env.SALLY_GITHUB_TOKEN || '').trim();
+}
+
 function releaseHeaders() {
   const headers = { 'User-Agent': USER_AGENT, accept: 'application/vnd.github+json' };
-  const token = String(process.env.SALLY_GITHUB_TOKEN || '').trim();
+  const token = authToken();
   if (token) headers.authorization = `Bearer ${token}`;
   return headers;
+}
+
+/**
+ * Release assets come in two flavours. A public repository serves the plain
+ * `browser_download_url`; a private one answers 404 there and needs the API
+ * asset endpoint with a token and `Accept: application/octet-stream`.
+ */
+function assetRequest(asset) {
+  const token = authToken();
+  if (token && asset?.apiUrl) {
+    return {
+      url: asset.apiUrl,
+      headers: {
+        'User-Agent': USER_AGENT,
+        accept: 'application/octet-stream',
+        authorization: `Bearer ${token}`
+      }
+    };
+  }
+  return { url: asset?.url, headers: { 'User-Agent': USER_AGENT } };
 }
 
 async function fetchRelease() {
@@ -193,7 +222,8 @@ async function downloadInstaller(update, { targetDir, onProgress = () => {} } = 
   }
   await fsp.mkdir(targetDir, { recursive: true });
   const dest = path.join(targetDir, update.asset.name.replace(/[^\w.-]+/g, '-'));
-  const res = await fetchWithRetry(update.asset.url, { headers: { 'User-Agent': USER_AGENT }, timeoutMs: 30000 });
+  const request = assetRequest(update.asset);
+  const res = await fetchWithRetry(request.url, { headers: request.headers, timeoutMs: 30000 });
   if (!res.ok) {
     throw new Error(
       `Download failed (HTTP ${res.status}). Try again later or install the setup file from the release page manually.`
@@ -219,4 +249,4 @@ async function downloadInstaller(update, { targetDir, onProgress = () => {} } = 
   return dest;
 }
 
-module.exports = { REPO, RELEASES_PAGE, check, downloadInstaller, isNewer, versionParts };
+module.exports = { REPO, RELEASES_PAGE, check, downloadInstaller, assetRequest, isNewer, versionParts };

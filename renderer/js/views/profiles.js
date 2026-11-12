@@ -1,4 +1,5 @@
 import { el, icon, switchToggle, toast, formatMb, formatDate, formatPlaytime, formatAgo } from '../ui.js';
+import { openCreate } from './create.js';
 
 let editing = null; // 'new' | profile id | null
 let lastRoot = null;
@@ -31,23 +32,27 @@ function profileCards(ctx) {
   const data = ctx.state.data;
   const cards = data.profiles.map((profile) => {
     const isActive = profile.id === data.activeProfileId;
-    const version = profile.versionId || 'No version';
     const instance = (data.instances || []).find((entry) => entry.profileId === profile.id);
     const running = instance?.state === 'running';
     const preparing = instance?.state === 'preparing';
+    const meta = [
+      profile.versionId || 'No version',
+      profile.loader && profile.loader !== 'vanilla' ? profile.loader : null,
+      `${formatPlaytime(profile.playtimeMs)} played`
+    ]
+      .filter(Boolean)
+      .join(' · ');
 
-    const action = (iconName, title, handler, extra = {}) =>
-      el('button', { class: 'square-btn', type: 'button', title, onclick: handler, ...extra }, icon(iconName, 18));
+    const iconButton = (name, title, handler, extra = {}) =>
+      el('button', { class: 'instance-icon-btn', type: 'button', title, onclick: handler, ...extra }, icon(name, 15));
 
     return el(
-      'div',
+      'article',
       {
-        class: `profile-card${isActive ? ' active' : ''}`,
+        class: `instance-card${isActive ? ' is-active' : ''}`,
         tabindex: '0',
         role: 'button',
-        title: `Open ${profile.name}`,
         onclick: (event) => {
-          /* inner buttons keep their own action */
           if (event.target.closest('button')) return;
           ctx.openInstance(profile.id);
         },
@@ -55,16 +60,15 @@ function profileCards(ctx) {
           if (event.key === 'Enter') ctx.openInstance(profile.id);
         }
       },
-      el('div', { class: 'profile-cover' }),
       el(
         'div',
-        { class: 'profile-head' },
-        el('div', { class: 'row-icon' }, icon('layers', 19)),
+        { class: 'instance-top' },
+        el('span', { class: 'instance-icon' }, icon(profile.modpack ? 'cube' : 'layers', 17)),
         el(
           'div',
-          { style: { minWidth: '0' } },
-          el('div', { class: 'profile-title', text: profile.name }),
-          el('div', { class: 'profile-sub', text: `${version} · ${formatMb(profile.memoryMb)}` })
+          { class: 'instance-text' },
+          el('span', { class: 'instance-name', text: profile.name }),
+          el('span', { class: 'instance-meta', text: meta })
         ),
         running || preparing
           ? el('span', { class: 'tag green', text: preparing ? 'Starting' : 'Running' })
@@ -74,27 +78,18 @@ function profileCards(ctx) {
       ),
       el(
         'div',
-        { class: 'profile-meta' },
-        el('div', { class: 'kv' }, el('span', { text: 'Version' }), el('b', { text: version })),
-        profile.modpack ? el('div', { class: 'kv' }, el('span', { text: 'Modpack' }), el('b', { text: `${profile.modpack.title}${profile.modpack.version ? ` ${profile.modpack.version}` : ''}` })) : null,
-        el('div', { class: 'kv' }, el('span', { text: 'Instance' }), el('b', { class: 'mono small', text: profile.gameDir || '—' })),
-        el('div', { class: 'kv' }, el('span', { text: 'Playtime' }), el('b', { text: `${formatPlaytime(profile.playtimeMs)} · ${formatAgo(profile.lastPlayedAt)}` })),
-        el('div', { class: 'kv' }, el('span', { text: 'Created' }), el('b', { text: formatDate(profile.createdAt) }))
-      ),
-      el(
-        'div',
-        { class: 'profile-actions' },
+        { class: 'instance-actions' },
         running || preparing
           ? el(
               'button',
-              { class: 'btn danger', type: 'button', onclick: () => ctx.stopGame(profile.id) },
-              icon('stop', 16),
+              { class: 'btn small danger', type: 'button', onclick: () => ctx.stopGame(profile.id) },
+              icon('stop', 14),
               el('span', { text: preparing ? 'Cancel' : 'Stop' })
             )
           : el(
               'button',
-              { class: `btn${isActive ? ' primary' : ''}`, type: 'button', onclick: () => ctx.launchGame(profile.id) },
-              icon('play', 16),
+              { class: `btn small${isActive ? ' primary' : ''}`, type: 'button', onclick: () => ctx.launchGame(profile.id) },
+              icon('play', 14),
               el('span', { text: 'Play' })
             ),
         isActive
@@ -102,31 +97,30 @@ function profileCards(ctx) {
           : el(
               'button',
               {
-                class: 'btn',
+                class: 'btn small ghost',
                 type: 'button',
-                title: 'Use this profile on Home',
+                title: 'Use this instance on Home',
                 onclick: async () => {
                   await ctx.api.invoke('profiles:select', profile.id);
                   await ctx.refresh();
                 }
               },
-              icon('check', 16),
               el('span', { text: 'Use' })
             ),
-        el('div', { class: 'spacer', style: { flex: '1' } }),
-        action('folder', 'Open instance folder', () => ctx.openPath(profile.gameDir)),
-        action('settings', 'Edit profile', () => {
+        el('span', { class: 'spacer', style: { flex: '1' } }),
+        iconButton('folder', 'Open folder', () => ctx.openPath(profile.gameDir)),
+        iconButton('settings', 'Edit instance', () => {
           editing = profile.id;
           repaint();
         }),
-        action('copy', 'Duplicate profile', async () => {
+        iconButton('copy', 'Duplicate', async () => {
           await ctx.api.invoke('profiles:duplicate', profile.id);
           await ctx.refresh();
-          toast('Profile duplicated.', 'success');
+          toast('Instance duplicated.', 'success');
         }),
-        action(
+        iconButton(
           'trash',
-          data.profiles.length > 1 ? 'Delete profile' : 'Keep at least one profile',
+          data.profiles.length > 1 ? 'Delete instance' : 'Keep at least one instance',
           async () => {
             await ctx.api.invoke('profiles:remove', profile.id);
             await ctx.refresh();
@@ -142,217 +136,22 @@ function profileCards(ctx) {
     cards.push(
       el(
         'button',
-        { class: 'profile-card new-card', type: 'button', onclick: () => { editing = 'new'; repaint(); } },
-        el('div', { class: 'row-icon' }, icon('plus', 18)),
-        el('div', { class: 'profile-title', text: 'New profile' }),
-        el('div', { class: 'profile-sub', text: 'Separate version, memory and game folder' })
+        {
+          class: 'instance-card instance-new',
+          type: 'button',
+          onclick: () => openCreate(ctx, { onDone: repaint })
+        },
+        el('span', { class: 'instance-icon' }, icon('plus', 17)),
+        el(
+          'div',
+          { class: 'instance-text' },
+          el('span', { class: 'instance-name', text: 'New instance' }),
+          el('span', { class: 'instance-meta', text: 'Version, loader, mods' })
+        )
       )
     );
   }
   return cards;
-}
-
-function profileForm(ctx) {
-  const data = ctx.state.data;
-  const existing = editing && editing !== 'new' ? data.profiles.find((p) => p.id === editing) : null;
-  const values = existing ? { ...existing } : profileDefaults(ctx);
-  const installed = ctx.state.versions?.installed || [];
-  const available = ctx.state.versions?.available || [];
-  const releases = available.filter((version) => version.type === 'release');
-  const seen = new Set(releases.map((version) => version.id));
-  const versions = [
-    ...installed.filter((version) => !seen.has(version.id)).map((v) => ({ ...v, installed: true })),
-    ...releases
-  ];
-
-  if (!ctx.state.versions) ctx.loadVersions();
-
-  const name = el('input', { type: 'text', value: values.name, placeholder: 'e.g. Fabric 1.21 - Performance', spellcheck: false, style: { width: '100%' } });
-
-  const versionSelect = el(
-    'select',
-    { style: { width: '100%' } },
-    el('option', { value: '', text: versions.length ? 'Choose a version' : 'No versions installed yet' }),
-    ...versions.map((version) =>
-      el('option', {
-        value: version.id,
-        text: `${version.id}${version.loader && version.loader !== 'Vanilla' ? ` (${version.loader})` : ''}${version.installed ? ' · installed' : ''}`,
-        selected: version.id === values.versionId
-      })
-    )
-  );
-  if (values.versionId && !versions.some((version) => version.id === values.versionId)) {
-    versionSelect.appendChild(el('option', { value: values.versionId, text: `${values.versionId} · installed`, selected: true }));
-  }
-
-  /* Loader choice lives on the profile, so the same Minecraft version can run
-     with Fabric, Forge or plain vanilla mods. */
-  const loaderSelect = el(
-    'select',
-    { style: { width: '100%' } },
-    el('option', { value: 'fabric', text: 'Fabric', selected: (values.loader || 'fabric') === 'fabric' }),
-    el('option', { value: 'forge', text: 'Forge', selected: values.loader === 'forge' }),
-    el('option', { value: 'vanilla', text: 'Vanilla (no mods)', selected: values.loader === 'vanilla' })
-  );
-
-  const loaderVersionSelect = el('select', { style: { width: '100%' } }, el('option', { value: '', text: 'Recommended' }));
-  const loaderVersionField = el('label', { class: 'field' }, el('span', { text: 'Loader version' }), loaderVersionSelect);
-
-  const mcVersionOf = (id) => {
-    const value = String(id || '');
-    const fabricMatch = /^fabric-loader-[^-]+-(.+)$/i.exec(value);
-    if (fabricMatch) return fabricMatch[1];
-    const forgeMatch = /^(.+?)-forge-.+$/i.exec(value);
-    if (forgeMatch) return forgeMatch[1];
-    return value;
-  };
-
-  let loaderRequest = 0;
-  const fillLoaderVersions = async () => {
-    const loader = loaderSelect.value;
-    loaderVersionField.style.display = loader === 'vanilla' ? 'none' : '';
-    const mcVersion = mcVersionOf(versionSelect.value);
-    const request = ++loaderRequest;
-    loaderVersionSelect.replaceChildren(el('option', { value: '', text: 'Recommended' }));
-    if (!mcVersion || loader === 'vanilla') return;
-    try {
-      const result = await ctx.api.invoke('loaders:versions', { loader, mcVersion });
-      if (request !== loaderRequest) return;
-      const entries = result?.versions || [];
-      loaderVersionSelect.replaceChildren(el('option', { value: '', text: 'Recommended' }));
-      for (const entry of entries) {
-        loaderVersionSelect.appendChild(
-          el('option', {
-            value: entry.version,
-            text: `${entry.version}${entry.stable ? ' · recommended' : ''}`,
-            selected: entry.version === values.loaderVersion
-          })
-        );
-      }
-    } catch (err) {
-      if (request === loaderRequest) toast(err.message, 'error');
-    }
-  };
-  loaderSelect.addEventListener('change', () => {
-    values.loaderVersion = '';
-    fillLoaderVersions();
-  });
-  versionSelect.addEventListener('change', () => {
-    values.loaderVersion = '';
-    fillLoaderVersions();
-  });
-  fillLoaderVersions();
-
-  const memoryLabel = el('span', { class: 'range-value', text: formatMb(values.memoryMb) });
-  const memory = el('input', { type: 'range', min: 1024, max: 16384, step: 512, value: values.memoryMb });
-  memory.addEventListener('input', () => {
-    memoryLabel.textContent = formatMb(Number(memory.value));
-  });
-
-  const instanceDir = existing ? values.gameDir || ctx.state.data.instanceDir || '' : '';
-  const gameDir = el('input', {
-    type: 'text',
-    value: instanceDir,
-    placeholder: existing ? 'Instance folder' : 'Assigned automatically when created',
-    spellcheck: false,
-    style: { width: '100%' }
-  });
-
-  const jvm = el('input', { type: 'text', value: values.jvmArgs || '', placeholder: 'Extra JVM flags', spellcheck: false, style: { width: '100%' } });
-  const server = el('input', { type: 'text', value: values.serverAddress || '', placeholder: 'play.example.net:25565', spellcheck: false, style: { width: '100%' } });
-
-  const width = el('input', { type: 'number', value: values.resolutionWidth, min: 320, max: 7680, disabled: !values.customResolution });
-  const height = el('input', { type: 'number', value: values.resolutionHeight, min: 240, max: 4320, disabled: !values.customResolution });
-  const resolutionSwitch = switchToggle(values.customResolution, (value) => {
-    width.disabled = !value;
-    height.disabled = !value;
-  });
-
-  const save = async () => {
-    const payload = {
-      name: name.value.trim() || 'Untitled profile',
-      versionId: versionSelect.value || null,
-      loader: loaderSelect.value,
-      loaderVersion: loaderVersionSelect.value || '',
-      gameDir: gameDir.value.trim(),
-      memoryMb: Number(memory.value),
-      jvmArgs: jvm.value.trim(),
-      serverAddress: server.value.trim(),
-      customResolution: resolutionSwitch.classList.contains('on'),
-      resolutionWidth: Number(width.value),
-      resolutionHeight: Number(height.value)
-    };
-    try {
-      const profile = existing
-        ? await ctx.api.invoke('profiles:update', existing.id, payload)
-        : await ctx.api.invoke('profiles:create', payload);
-      editing = null;
-      await ctx.refresh();
-      toast(`Profile ${payload.name} saved.`, 'success');
-      if (profile?.id && payload.versionId) {
-        toast('Installing Minecraft and the client mod…', 'info');
-        ctx.api.invoke('versions:install', profile.id).catch((err) => toast(err.message, 'error'));
-      }
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
-
-  return el(
-    'div',
-    { class: 'panel', style: { marginTop: '18px' } },
-    el(
-      'div',
-      { class: 'panel-head' },
-      el('span', { class: 'ic' }, icon(existing ? 'settings' : 'plus', 20)),
-      el('span', { text: existing ? `Edit ${existing.name}` : 'New profile' }),
-      el('span', { class: 'spacer' }),
-      el('button', { class: 'btn ghost', type: 'button', onclick: () => { editing = null; repaint(); } }, el('span', { text: 'Cancel' }))
-    ),
-    el(
-      'div',
-      { class: 'form-grid' },
-      el('label', { class: 'field' }, el('span', { text: 'Name' }), name),
-      el('label', { class: 'field' }, el('span', { text: 'Version' }), versionSelect),
-      el('label', { class: 'field' }, el('span', { text: 'Loader' }), loaderSelect),
-      loaderVersionField,
-      el('label', { class: 'field' }, el('span', { text: 'Memory' }), el('div', { class: 'setting-control' }, memory, memoryLabel)),
-      el(
-        'label',
-        { class: 'field' },
-        el('span', { text: 'Instance folder' }),
-        el(
-          'div',
-          { class: 'setting-control', style: { width: '100%' } },
-          gameDir,
-          el(
-            'button',
-            {
-              class: 'btn',
-              type: 'button',
-              title: 'Open instance folder',
-              onclick: () => ctx.openPath(gameDir.value)
-            },
-            icon('folder', 16)
-          )
-        )
-      ),
-      el('label', { class: 'field' }, el('span', { text: 'Server (auto-connect)' }), server),
-      el('label', { class: 'field' }, el('span', { text: 'JVM arguments' }), jvm),
-      el(
-        'label',
-        { class: 'field' },
-        el('span', { text: 'Window size' }),
-        el('div', { class: 'setting-control' }, resolutionSwitch, width, el('span', { class: 'faint', text: '×' }), height)
-      )
-    ),
-    el(
-      'div',
-      { class: 'toolbar', style: { marginTop: '18px', marginBottom: '0' } },
-      el('button', { class: 'btn primary', type: 'button', onclick: save }, icon('check', 16), el('span', { text: existing ? 'Save changes' : 'Create profile' })),
-      el('span', { class: 'faint', text: 'Every profile has its own instance folder – saves, mods and config never mix.' })
-    )
-  );
 }
 
 export function render(root, ctx) {
@@ -370,8 +169,7 @@ export function render(root, ctx) {
       el(
         'div',
         {},
-        el('h1', { class: 'page-title', text: 'Profiles' }),
-        el('div', { class: 'page-sub', text: 'One profile per setup: vanilla, Fabric, snapshots or a modded folder.' })
+        el('h1', { class: 'page-title', text: 'Instances' })
       ),
       el(
         'div',
@@ -379,16 +177,16 @@ export function render(root, ctx) {
         el('span', { class: 'chip' }, icon('layers', 16), el('span', { text: data.activeProfile?.name || 'Default' })),
         el(
           'button',
-          { class: 'btn primary', type: 'button', onclick: () => { editing = 'new'; repaint(); } },
+          { class: 'btn primary', type: 'button', onclick: () => openCreate(ctx, { onDone: repaint }) },
           icon('plus', 16),
-          el('span', { text: 'New profile' })
+          el('span', { text: 'New instance' })
         )
       )
     ),
     el('div', { class: 'profile-grid' }, ...profileCards(ctx))
   );
 
-  if (editing) root.append(profileForm(ctx));
+  if (editing && editing !== 'new') root.append(profileForm(ctx));
 }
 
 export function onState(root, ctx) {

@@ -134,6 +134,9 @@ const DEFAULTS = () => ({
     skinLibrary: [],
     skinId: 'account',
     theme: 'dark',
+    /* frosted glass over the desktop: switch plus 0-100 see-through strength */
+    glass: true,
+    glassIntensity: 62,
     /* false runs the launcher on the software renderer – see main.js */
     hardwareAcceleration: true
   },
@@ -266,6 +269,9 @@ class Store {
     next.memoryMb = Math.max(1024, Math.min(32768, Math.round(Number(next.memoryMb) || 4096)));
     next.resolutionWidth = Math.max(320, Math.round(Number(next.resolutionWidth) || 1280));
     next.resolutionHeight = Math.max(240, Math.round(Number(next.resolutionHeight) || 720));
+    if ('glassIntensity' in safePatch) {
+      next.glassIntensity = Math.max(0, Math.min(100, Math.round(Number(next.glassIntensity) || 0)));
+    }
     data.settings = next;
     this.save();
     return data.settings;

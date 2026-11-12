@@ -1,19 +1,21 @@
-import { el, icon, logoMark, toast, themeReveal } from './ui.js';
+import { el, icon, logoMark, toast, themeReveal, THEMES, normalizeTheme } from './ui.js';
 import { api } from './api.js';
 import * as home from './views/home.js';
 import * as profiles from './views/profiles.js';
 import * as modrinth from './views/modrinth.js';
+import * as servers from './views/servers.js';
 import * as skins from './views/skins.js';
 import * as cosmetics from './views/cosmetics.js';
 import * as instance from './views/instance.js';
 import * as settings from './views/settings.js';
 
-const VIEWS = { home, profiles, instance, modrinth, skins, cosmetics, settings };
+const VIEWS = { home, profiles, instance, modrinth, servers, skins, cosmetics, settings };
 
 const NAV = [
   { id: 'home', label: 'Home', icon: 'home' },
-  { id: 'profiles', label: 'Profiles', icon: 'layers' },
+  { id: 'profiles', label: 'Instances', icon: 'layers' },
   { id: 'modrinth', label: 'Modrinth', icon: 'cube' },
+  { id: 'servers', label: 'Servers', icon: 'globe' },
   { id: 'skins', label: 'Skins', icon: 'palette' },
   { id: 'cosmetics', label: 'Cosmetics', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' }
@@ -62,6 +64,8 @@ const ctx = {
     state.data = await api.invoke('state:get');
     state.clientInfo = await api.invoke('client:info').catch(() => null);
     applyTheme(state.data.settings.theme);
+    applyGlass(state.data.settings);
+    syncGlassMaterial(state.data.settings);
     syncChrome();
     renderView();
   },
@@ -69,6 +73,10 @@ const ctx = {
     const updated = await api.invoke('settings:update', patch);
     if (state.data) state.data.settings = { ...state.data.settings, ...updated };
     if (patch.theme) applyTheme(patch.theme);
+    if ('glass' in patch || 'glassIntensity' in patch) {
+      applyGlass(state.data?.settings || updated);
+      syncGlassMaterial(state.data?.settings || updated);
+    }
     syncChrome();
     return updated;
   },
@@ -132,15 +140,75 @@ const ctx = {
 
 /* ------------------------------------------------------------------ chrome */
 
+let themePop = null;
+
+function closeThemePop() {
+  themePop?.remove();
+  themePop = null;
+  document.removeEventListener('mousedown', onThemeOutside, true);
+}
+
+function onThemeOutside(event) {
+  if (!themePop) return;
+  if (themePop.contains(event.target) || event.target.closest('#themeToggle')) return;
+  closeThemePop();
+}
+
+function applyGlass(settings) {
+  const on = settings?.glass !== false;
+  const intensity = Math.max(0, Math.min(100, Number(settings?.glassIntensity ?? 62)));
+  document.documentElement.dataset.glass = on ? 'on' : 'off';
+  /* higher setting = clearer window, lower = more solid */
+  document.documentElement.style.setProperty('--glass', String(on ? intensity / 100 : 0));
+}
+
+function syncGlassMaterial(settings) {
+  api.invoke('appearance:glass', settings?.glass !== false).catch(() => {});
+}
+
 function applyTheme(theme) {
-  const value = theme === 'light' ? 'light' : 'dark';
+  const value = normalizeTheme(theme);
   document.documentElement.dataset.theme = value;
   const btn = document.getElementById('themeToggle');
   if (btn) {
+    const entry = THEMES.find((item) => item.id === value) || THEMES[0];
     btn.innerHTML = '';
-    btn.appendChild(icon(value === 'dark' ? 'moon' : 'sun', 20));
-    btn.title = value === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    btn.appendChild(icon('palette', 19));
+    btn.title = `Theme: ${entry.label}`;
   }
+}
+
+function openThemePop() {
+  if (themePop) {
+    closeThemePop();
+    return;
+  }
+  const current = normalizeTheme(state.data?.settings?.theme);
+  themePop = el(
+    'div',
+    { class: 'theme-pop' },
+    ...THEMES.map((entry) =>
+      el(
+        'button',
+        {
+          class: `theme-row${entry.id === current ? ' is-active' : ''}`,
+          type: 'button',
+          onclick: async (event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            closeThemePop();
+            await ctx.saveSettings({ theme: entry.id });
+            themeReveal({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, () => applyTheme(entry.id));
+            dispatch('onState');
+          }
+        },
+        el('span', { class: 'theme-dot', style: { background: entry.dot } }),
+        el('span', { text: entry.label }),
+        entry.id === current ? icon('check', 15) : null
+      )
+    )
+  );
+  document.querySelector('.theme-wrap').appendChild(themePop);
+  document.addEventListener('mousedown', onThemeOutside, true);
 }
 
 function buildNav() {
@@ -168,15 +236,6 @@ function syncChrome() {
   if (!state.data) return;
   document.getElementById('appVersion').textContent = `v${state.data.appVersion}`;
   syncUpdateBar();
-  const status = document.getElementById('clockStatus');
-  if (status) {
-    const instances = state.data.instances || [];
-    const running = instances.filter((entry) => entry.state === 'running');
-    if (running.length > 1) status.textContent = `Playing ${running.length} profiles`;
-    else if (running.length === 1) status.textContent = `Playing ${running[0].versionId || 'Minecraft'}`;
-    else if (state.data.gameState === 'preparing') status.textContent = 'Preparing launch…';
-    else status.textContent = 'In the main menu';
-  }
 }
 
 /* --------------------------------------------------------------- updates */
@@ -382,6 +441,7 @@ function handleEvent(message) {
   if (type === 'state') {
     state.data = payload;
     applyTheme(payload.settings.theme);
+    applyGlass(payload.settings);
     syncChrome();
     dispatch('onState');
     /* the client-mod report depends on the active version, so refresh it */
@@ -406,16 +466,14 @@ async function init() {
     api.window.toggleMaximize();
   });
 
-  document.getElementById('themeToggle').addEventListener('click', async (event) => {
-    const next = state.data?.settings?.theme === 'light' ? 'dark' : 'light';
-    const rect = event.currentTarget.getBoundingClientRect();
-    themeReveal({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, () => applyTheme(next));
-    await ctx.saveSettings({ theme: next });
-    dispatch('onState');
+  document.getElementById('themeToggle').addEventListener('click', (event) => {
+    event.stopPropagation();
+    openThemePop();
   });
 
   state.data = await api.invoke('state:get');
   applyTheme(state.data.settings.theme);
+  applyGlass(state.data.settings);
   document.getElementById('appVersion').textContent = `v${state.data.appVersion}`;
   buildNav();
   state.view = null;

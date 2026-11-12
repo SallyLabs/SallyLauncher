@@ -226,7 +226,7 @@ export function render(root, ctx) {
         el('h1', { class: 'page-title', text: 'Modrinth' }),
         el('div', {
           class: 'page-sub',
-          text: `Packs and mods for ${profile?.name || 'your profile'} · Minecraft ${mcVersionOf(data) || '—'}`
+          text: `Minecraft ${mcVersionOf(data) || '—'} · ${profile?.name || 'no profile'}`
         })
       ),
       el(

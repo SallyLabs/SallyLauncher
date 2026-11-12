@@ -21,6 +21,21 @@ function appendChildren(node, children) {
   }
 }
 
+export const THEMES = [
+  { id: 'midnight', label: 'Midnight', dot: 'linear-gradient(135deg, #b3a0f9, #5d4c94)' },
+  { id: 'graphite', label: 'Graphite', dot: 'linear-gradient(135deg, #c9ced8, #2a2d33)' },
+  { id: 'nord', label: 'Nord', dot: 'linear-gradient(135deg, #88c0d0, #3b5266)' },
+  { id: 'rose', label: 'Rosé', dot: 'linear-gradient(135deg, #f0a3c0, #7d4f63)' },
+  { id: 'light', label: 'Light', dot: 'linear-gradient(135deg, #ffffff, #cfc7e6)' }
+];
+
+/** Old settings stored only 'dark' or 'light'. */
+export function normalizeTheme(theme) {
+  if (theme === 'light') return 'light';
+  if (!theme || theme === 'dark') return 'midnight';
+  return THEMES.some((entry) => entry.id === theme) ? theme : 'midnight';
+}
+
 export function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props || {})) {

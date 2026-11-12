@@ -75,22 +75,22 @@ const demoState = {
   discord: { enabled: false, status: 'off', error: null, activity: null },
   update: {
     available: true,
-    currentVersion: '1.1.4',
-    latestVersion: '1.1.4',
-    name: 'SallyLauncher 1.1.4',
+    currentVersion: '1.2.2',
+    latestVersion: '1.2.2',
+    name: 'SallyLauncher 1.2.2',
     notes: 'Faster modpack installs, update checks and a Windows installer.',
     publishedAt: '2026-10-28T12:00:00Z',
     htmlUrl: 'https://github.com/SallyLabs/SallyLauncher/releases/latest',
     releasesUrl: 'https://github.com/SallyLabs/SallyLauncher/releases/latest',
     repo: 'SallyLabs/SallyLauncher',
-    asset: { name: 'SallyLauncher-Setup-1.1.4.exe', url: '#', size: 0 },
+    asset: { name: 'SallyLauncher-Setup-1.2.2.exe', url: '#', size: 0 },
     checkedAt: '2026-11-01T09:00:00Z',
     error: null
   },
   gameState: 'idle',
   instances: [],
   status: { running: false, versionId: null },
-  appVersion: '1.1.4',
+  appVersion: '1.2.2',
   platform: 'win32'
 };
 
@@ -198,6 +198,33 @@ function demoInvoke(channel, ...args) {
       return structuredClone(demoState.update);
     case 'updates:install':
       return { started: true };
+    case 'servers:list':
+      return {
+        servers: [
+          { id: 'sallylabs', name: 'SallyLabs', address: 'mc.sallylabs.net', description: 'The SallyLabs home server', languages: ['de', 'en'], featured: true, banner: null },
+          { id: 'hypixel', name: 'Hypixel', address: 'hypixel.net', description: 'SkyBlock, Bed Wars and a lot more', languages: ['en'], featured: true, banner: null },
+          { id: 'gommehd', name: 'GommeHD', address: 'gommehd.net', description: 'BedWars, SkyWars and more', languages: ['de'], featured: true, banner: null },
+          { id: 'katzensmp', name: 'KatzenSMP', address: 'katzensmp.net', description: 'ForeverWorld', languages: ['de'], featured: false, banner: null }
+        ],
+        fetchedAt: new Date().toISOString(),
+        fromCache: true,
+        error: null
+      };
+    case 'cosmetics:list':
+      return {
+        version: '1.9.17',
+        configured: true,
+        items: [
+          { id: 'little_star', name: 'Little Star', slot: 'halo', collection: 'basics', price: 250, image: null, worn: false, owned: false },
+          { id: 'flower_crown', name: 'Flower Crown', slot: 'hat', collection: 'flower', price: 400, image: null, worn: false, owned: false },
+          { id: 'royal_crown', name: 'Royal Crown', slot: 'hat', collection: 'royal', price: 600, image: null, worn: false, owned: false },
+          { id: 'bat_wings', name: 'Bat Wings', slot: 'back', collection: 'halloween', price: 500, image: null, worn: false, owned: false }
+        ]
+      };
+    case 'cosmetics:toggle':
+      return { worn: [String(payload?.id || "").toUpperCase()], removed: false };
+    case 'servers:apply':
+      return { profileId: demoState.activeProfileId, serverAddress: payload?.address || '' };
     case 'discord:reconnect':
       return structuredClone(demoState.discord);
     case 'updates:openRelease':

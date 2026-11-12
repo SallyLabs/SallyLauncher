@@ -1,5 +1,6 @@
 import { el, icon, headAvatar, formatMb, formatPlaytime, formatAgo, versionInfo } from '../ui.js';
 import { createModelBuilder, createViewer, applySkinScale, activeSkinOf, skinOrDefault, prepareSkin } from '../mc-model.js';
+import { openCreate } from './create.js';
 
 const refs = { viewer: null, rowTimes: new Map(), closeMenu: null };
 let rerender = () => {};
@@ -151,8 +152,7 @@ function banner(ctx) {
     el(
       'button',
       { class: 'banner-profile', type: 'button', title: 'Open your account', onclick: () => ctx.openSettings('accounts') },
-      el('span', { class: 'banner-profile-name', text: account?.name || 'Player' }),
-      el('span', { class: 'banner-profile-hint', text: 'Go to Profile' })
+      el('span', { class: 'banner-profile-name', text: account?.name || 'Player' })
     ),
     scene,
     el(
@@ -262,7 +262,7 @@ function profileSection(ctx) {
     el(
       'div',
       { class: 'home-prof-head' },
-      el('span', { class: 'home-prof-title' }, icon('clock', 17), el('span', { text: 'Last played profiles' })),
+      el('span', { class: 'home-prof-title' }, icon('layers', 16), el('span', { text: 'Instances' })),
       el('span', { class: 'spacer', style: { flex: '1' } }),
       el('span', { class: 'pill' }, icon('cpu', 14), el('span', { text: `CPU ${Math.round(ctx.state.stats.cpu || 0)}%`, id: 'heroCpu' })),
       el('span', { class: 'pill' }, icon('memory', 14), el('span', { text: `${formatMb(data.activeProfile?.memoryMb || data.settings.memoryMb)} RAM` }))
@@ -273,9 +273,9 @@ function profileSection(ctx) {
       { class: 'home-actions' },
       el(
         'button',
-        { class: 'home-action', type: 'button', onclick: () => ctx.navigate('profiles') },
-        icon('layers', 17),
-        el('span', { text: 'Manage all profiles' })
+        { class: 'home-action', type: 'button', onclick: () => openCreate(ctx) },
+        icon('plus', 17),
+        el('span', { text: 'New instance' })
       ),
       el(
         'button',

@@ -1,4 +1,4 @@
-import { el, icon, switchToggle, formatMb, themeReveal } from '../ui.js';
+import { el, icon, switchToggle, formatMb, themeReveal, THEMES, normalizeTheme } from '../ui.js';
 import { panels as accountPanels } from './accounts.js';
 
 const SECTIONS = [
@@ -10,11 +10,11 @@ const SECTIONS = [
 ];
 
 const SECTION_SUB = {
-  general: 'Game, Java, performance and launch behaviour – everything applies to the next launch.',
-  accounts: 'Minecraft accounts SallyLauncher can sign in with. Launches use the active one.',
-  appearance: 'How the launcher looks.',
-  updates: 'Release checks against GitHub.',
-  about: 'Version info and links.'
+  general: '',
+  accounts: '',
+  appearance: '',
+  updates: '',
+  about: ''
 };
 
 function sectionTabs(ctx, section) {
@@ -199,7 +199,7 @@ function updatesPanel(ctx) {
 export function render(root, ctx) {
   const settings = ctx.state.data.settings;
   const save = (patch) => ctx.saveSettings(patch);
-  const section = SECTION_SUB[ctx.state.settingsTab] ? ctx.state.settingsTab : 'general';
+  const section = SECTIONS.some((entry) => entry.id === ctx.state.settingsTab) ? ctx.state.settingsTab : 'general';
   const data = ctx.state.data;
 
   /* game folder */
@@ -337,29 +337,64 @@ export function render(root, ctx) {
   });
 
   /* theme */
-  const themeTabs = el(
+  const activeTheme = normalizeTheme(settings.theme);
+  const themePicker = el(
     'div',
-    { class: 'toolbar', style: { marginBottom: '0' } },
-    ...['dark', 'light'].map((value) =>
-      el('button', {
-        class: `tab${settings.theme === value ? ' active' : ''}`,
-        type: 'button',
-        text: value === 'dark' ? 'Dark' : 'Light',
-        onclick: async (event) => {
-          /* currentTarget is null after an await, so read everything up front */
-          const button = event.currentTarget;
-          const tabs = button.parentElement;
-          const rect = button.getBoundingClientRect();
-          themeReveal({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, () => {
-            document.documentElement.dataset.theme = value;
-          });
-          tabs.querySelectorAll('.tab').forEach((node) => node.classList.remove('active'));
-          button.classList.add('active');
-          await save({ theme: value });
-        }
-      })
+    { class: 'theme-list' },
+    ...THEMES.map((entry) =>
+      el(
+        'button',
+        {
+          class: `theme-item${entry.id === activeTheme ? ' is-active' : ''}`,
+          type: 'button',
+          onclick: async (event) => {
+            const item = event.currentTarget;
+            const rect = item.getBoundingClientRect();
+            await save({ theme: entry.id });
+            themeReveal({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, () => {
+              document.documentElement.dataset.theme = entry.id;
+            });
+            document.querySelectorAll('.theme-item').forEach((node) => node.classList.toggle('is-active', node === item));
+          }
+        },
+        el(
+          'span',
+          { class: 'theme-preview', style: { background: entry.dot } },
+          el('i', { style: { background: 'rgba(255, 255, 255, 0.75)' } }),
+          el('i', { style: { background: 'rgba(255, 255, 255, 0.35)' } })
+        ),
+        el(
+          'span',
+          { class: 'theme-item-text' },
+          el('b', { text: entry.label }),
+          el('span', { text: entry.id === 'light' ? 'Light interface' : 'Dark interface' })
+        ),
+        el('span', { class: 'check' }, icon('check', 16))
+      )
     )
   );
+
+  /* frosted glass: switch plus strength slider */
+  const glassStrength = Math.max(0, Math.min(100, Number(settings.glassIntensity ?? 62)));
+  const glassValue = el('span', { class: 'range-value', text: `${glassStrength}%` });
+  const glassSlider = el('input', {
+    type: 'range',
+    min: '0',
+    max: '100',
+    step: '1',
+    value: String(glassStrength),
+    disabled: settings.glass === false
+  });
+  glassSlider.addEventListener('input', () => {
+    const value = Number(glassSlider.value);
+    glassValue.textContent = `${value}%`;
+    document.documentElement.style.setProperty('--glass', String(value / 100));
+  });
+  glassSlider.addEventListener('change', () => save({ glassIntensity: Number(glassSlider.value) }));
+  const glassSwitch = switchToggle(settings.glass !== false, async (value) => {
+    glassSlider.disabled = !value;
+    await save({ glass: value });
+  });
 
   const panels = {
     general: [
@@ -368,7 +403,7 @@ export function render(root, ctx) {
         'cube',
         row(
           'Instances folder',
-          'SallyLauncher keeps every profile in its own folder here. Minecraft files are shared from the launcher cache – your vanilla .minecraft stays untouched.',
+          'Where new instances are created.',
           gameDirInput,
           browse,
           el('button', { class: 'btn', type: 'button', title: 'Open folder', onclick: () => ctx.openPath(gameDirInput.value) }, icon('external', 16))
@@ -379,7 +414,7 @@ export function render(root, ctx) {
         'cpu',
         row(
           'Java runtime',
-          'Leave empty to auto-detect. Minecraft 1.21+ needs Java 21 or newer.',
+          'Auto-detected when empty.',
           javaInput,
           javaPick,
           el('button', { class: 'btn', type: 'button', title: 'Detect again', onclick: detectJava }, icon('refresh', 16))
@@ -406,7 +441,7 @@ export function render(root, ctx) {
         ),
         row(
           'Hardware acceleration',
-          'Turn this off if your graphics driver stalls while the launcher is open – the window then renders on the CPU. Restart to apply.',
+          'Off renders on the CPU. Restart to apply.',
           gpuSwitch
         )
       ),
@@ -422,14 +457,36 @@ export function render(root, ctx) {
         'gamepad',
         row(
           'Rich Presence',
-          'Shows activity on your Discord profile while using SallyLauncher. Works when Discord is open.',
+          'Shows what you play in Discord.',
           el('span', { class: 'faint small' }, discordDot, discordStatusText),
           discordSwitch
         )
       )
     ],
     accounts: accountPanels(ctx),
-    appearance: [panel('Appearance', 'sun', row('Theme', null, themeTabs))],
+    appearance: [
+      panel(
+        'Appearance',
+        'sun',
+        el(
+          'div',
+          { class: 'theme-block' },
+          el('div', { class: 'setting-label', text: 'Theme' }),
+          el('div', { class: 'setting-hint', text: 'Applies instantly and is remembered for the next start.' }),
+          themePicker
+        ),
+        el(
+          'div',
+          { class: 'theme-block' },
+          el('div', { class: 'setting-label', text: 'Frosted glass' }),
+          el('div', {
+            class: 'setting-hint',
+            text: 'Higher values make the launcher clearer, so more of the Windows desktop shows through behind it.'
+          }),
+          el('div', { class: 'glass-row' }, glassSwitch, glassSlider, glassValue)
+        )
+      )
+    ],
     updates: [updatesPanel(ctx)],
     about: [
       panel(
@@ -473,7 +530,7 @@ export function render(root, ctx) {
         'div',
         {},
         el('h1', { class: 'page-title', text: 'Settings' }),
-        el('div', { class: 'page-sub', text: SECTION_SUB[section] })
+        SECTION_SUB[section] ? el('div', { class: 'page-sub', text: SECTION_SUB[section] }) : null
       )
     ),
     sectionTabs(ctx, section),
